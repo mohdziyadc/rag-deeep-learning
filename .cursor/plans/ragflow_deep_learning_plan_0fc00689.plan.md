@@ -1,33 +1,3 @@
----
-name: RAGFlow Deep Learning Plan
-overview: A comprehensive learning-by-building plan to master RAGFlow's architecture, covering the complete RAG pipeline from query to response, document lifecycle management, memory system, and all integration points - enabling you to build your own production-grade RAG system.
-todos:
-  - id: phase0-storage
-    content: "Phase 0: Understand data storage architecture - MySQL for metadata, ES/Infinity for vectors, Redis for cache"
-    status: pending
-  - id: phase1-retrieval
-    content: "Phase 1: Study hybrid search in rag/nlp/search.py and build mini retriever with BM25 + vector fusion"
-    status: pending
-  - id: phase2-parsing
-    content: "Phase 2: Study deepdoc/parser/ and build document parser with chunking strategies"
-    status: pending
-  - id: phase3-generation
-    content: "Phase 3: Study rag/prompts/generator.py and build citation-aware LLM generator"
-    status: pending
-  - id: phase4-graphrag
-    content: "Phase 4: Study graphrag/ and implement entity extraction with knowledge graph"
-    status: pending
-  - id: phase5-memory
-    content: "Phase 5: Study memory/ services and implement conversation memory system"
-    status: pending
-  - id: phase6-agents
-    content: "Phase 6: Study agent/canvas.py and build multi-step agent workflow"
-    status: pending
-  - id: integration
-    content: "Final: Integrate all components into your own end-to-end RAG system"
-    status: pending
----
-
 # RAGFlow Deep Learning Plan
 
 ## Part 1: System Architecture Overview
@@ -374,11 +344,11 @@ RAGFlow supports two vector store backends:
 - Built by InfiniFlow (same company as RAGFlow)
 - Optimized for RAG workloads
 - Switch via `DOC_ENGINE=infinity` in docker/.env
-
 ```python
 # From common/settings.py
 DOC_ENGINE_INFINITY = os.environ.get("DOC_ENGINE", "").lower() == "infinity"
 ```
+
 
 #### Storage Decision Guide
 
