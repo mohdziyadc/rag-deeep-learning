@@ -1,7 +1,7 @@
 
 import logging
 from app.config import get_settings
-from elasticsearch import AsyncElasticsearch
+from elasticsearch import AsyncElasticsearch, NotFoundError
 
 from models.types import Chunk
 
@@ -79,16 +79,19 @@ class ESIndexer:
             self.client = None
 
     async def create_index(self):
-        is_idx_present: bool = await self.client.exists(index=self.index_name)
-
-        if not is_idx_present:
+        try:
+            await self.client.indices.get(index=self.index_name)
+            logger.info(f"Index {self.index_name} already exists")
+        except NotFoundError:
             await self.client.indices.create(
                 index=self.index_name,
                 body=INDEX_MAPPING
             )
-            logger.info(f'Created index: {self.index_name}')
-        else:
-            logger.info(f"Index {self.index_name} already exists")
+            logger.info(f"Created index: {self.index_name}")
+        except Exception as e:
+            logger.error(f"Error checking/creating index: {e}", exc_info=True)
+            raise
+
 
     async def index(self, chunk:dict):
         """

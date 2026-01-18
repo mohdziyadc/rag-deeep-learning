@@ -1,11 +1,31 @@
-from fastapi import FastAPI
 from dotenv import load_dotenv
-
 load_dotenv()
 
-from app.config import get_settings
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 
-app = FastAPI(title="RAG Deep Learning API")
+from core.indexer import ESIndexer
+
+from app.config import get_settings
+import logging
+logging.basicConfig(level=logging.INFO, force=True)
+
+indexer = ESIndexer()
+settings = get_settings()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print(f"🔍 ES_INDEX = '{settings.es_index}'")  # Add this
+    print(f"🔍 ES_HOST = '{settings.es_host}'")
+    print(f"indexer.index_name = {indexer.index_name!r}") 
+    await indexer.connect()
+    await indexer.create_index()
+
+    yield
+    
+    await indexer.close()
+
+app = FastAPI(title="RAG Deep Learning API", lifespan=lifespan)
 
 
 @app.get("/")
@@ -26,3 +46,12 @@ def show_config():
         "top_k": settings.top_k,
         "db_url": settings.db_url
     }
+
+
+@app.get("/health/es")
+async def es_health():
+    try:
+        stats = await indexer.get_stats()
+        return {"status": "healthy", "stats": stats}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
