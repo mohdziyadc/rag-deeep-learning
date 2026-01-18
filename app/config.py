@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     bm25_weight: float = os.getenv("BM25_WEIGHT")
     vector_weight: float = os.getenv("VECTOR_WEIGHT")
     top_k: int = os.getenv("TOP_K")
+    db_url: str = os.getenv("DATABASE_URL")
 
 
 @lru_cache

@@ -24,4 +24,5 @@ def show_config():
         "bm25_weight": settings.bm25_weight,
         "vector_weight": settings.vector_weight,
         "top_k": settings.top_k,
+        "db_url": settings.db_url
     }
