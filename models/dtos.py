@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -26,3 +27,15 @@ class SearchResponse(BaseModel):
     query: str
     total: int
     results: list[SearchResult]
+
+
+class ChunkInDB(BaseModel):
+    chunk_id: str
+    doc_id: str
+    content_tokens: list[str]
+    content: str
+    embedding: list[float]
+    title: str
+    chunk_index: int
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.now)

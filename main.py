@@ -1,4 +1,6 @@
 from dotenv import load_dotenv
+
+from core.embedder import embedder
 load_dotenv()
 
 from contextlib import asynccontextmanager
@@ -20,7 +22,7 @@ async def lifespan(app: FastAPI):
     print(f"indexer.index_name = {indexer.index_name!r}") 
     await indexer.connect()
     await indexer.create_index()
-
+    embedder.load()
     yield
     
     await indexer.close()
@@ -55,3 +57,8 @@ async def es_health():
         return {"status": "healthy", "stats": stats}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
+
+@app.get('/embedder_test')
+def embed_test():
+    vectors, tokens = embedder.encode(["zee 4 lyf", "lowkey tha goat"])
+    return {"shape": list(vectors.shape), "tokens": tokens, "embeddings": vectors.tolist()}
