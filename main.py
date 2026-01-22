@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 
 from core.embedder import embedder
+from core.searcher import searcher
 load_dotenv()
 
 from contextlib import asynccontextmanager
@@ -62,3 +63,9 @@ async def es_health():
 def embed_test():
     vectors, tokens = embedder.encode(["zee 4 lyf", "lowkey tha goat"])
     return {"shape": list(vectors.shape), "tokens": tokens, "embeddings": vectors.tolist()}
+
+
+# @app.get('/es-search')
+# def es_search_test():
+#     es_searcher = searcher._build_hybrid_query("", [0.1], 10)
+#     return {"es_searcher": es_searcher}

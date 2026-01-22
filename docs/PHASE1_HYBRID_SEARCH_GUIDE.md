@@ -217,6 +217,7 @@ dependencies = [
     
     # Elasticsearch
     "elasticsearch[async]>=8.0.0",
+    "elasticsearch-dsl>=8.0.0",    # Pythonic query builder
     
     # ML/NLP
     "sentence-transformers>=3.0.0",  # For embeddings
@@ -822,31 +823,33 @@ embedder = Embedder()
 
 ### Step 4: Combine with Weighted Fusion
 
-**What:** Merge BM25 and vector search results using weighted scores.
+**What:** Retrieve BM25 and vector results separately, then fuse scores in Python.
 
-**Why:** Neither search type is perfect alone. Fusion gives us the best of both!
+**Why:** Elasticsearch does **not** produce a true weighted sum between BM25 and KNN.  
+The `boost` on the `knn` block only scales vector scores **within** the KNN retriever, it does not combine with BM25 the way most people expect.  
+For a real hybrid fusion, you must **run two searches** and **merge scores manually** (weighted sum or RRF).
 
 **How:**
 
 ```python
 # core/searcher.py
 """
-Hybrid Search Implementation
+Hybrid Search Implementation (true fusion)
 
 WHY: Combine BM25 (keyword) + Vector (semantic) search
   - BM25 catches exact matches
   - Vector catches semantic similarity
   - Together = robust retrieval
 
-WHAT: This is the core of RAGFlow's search.py Dealer class
-
 HOW:
-  1. Get BM25 scores from Elasticsearch text search
-  2. Get vector scores from KNN search
-  3. Combine with weighted fusion
+  1. Run BM25 search (text-only)
+  2. Run KNN search (vector-only)
+  3. Normalize and fuse scores (weighted sum or RRF)
   4. Optionally rerank
 """
 from elasticsearch import AsyncElasticsearch
+from elasticsearch_dsl import Search, Q
+from elasticsearch_dsl.query import Knn
 from app.config import get_settings
 from core.embedder import embedder
 from core.tokenizer import Tokenizer
@@ -859,212 +862,215 @@ settings = get_settings()
 
 
 class HybridSearcher:
-    """
-    Performs hybrid search combining BM25 and vector similarity.
-    
-    This is a simplified version of RAGFlow's Dealer class.
-    
-    Key differences from RAGFlow:
-    - Simplified query processing (no synonym expansion)
-    - Uses ES's native KNN instead of custom scoring
-    - No rank features or PageRank
-    """
-    
     def __init__(self):
         self.client: AsyncElasticsearch | None = None
         self.index_name = settings.es_index
         self.tokenizer = Tokenizer()
-        
-        # Weights for fusion
         self.bm25_weight = settings.bm25_weight
         self.vector_weight = settings.vector_weight
-    
+        self.rrf_k = 60  # Typical RRF constant
+
     async def connect(self):
-        """Initialize Elasticsearch connection"""
         if self.client is None:
             self.client = AsyncElasticsearch(
                 hosts=[settings.es_host],
                 request_timeout=30
             )
-    
-    async def close(self):
-        """Close connection"""
-        if self.client:
-            await self.client.close()
-            self.client = None
-    
+
     async def search(
         self,
         query: str,
         top_k: int = 10,
-        similarity_threshold: float = 0.2
+        similarity_threshold: float = 0.2,
+        fusion_method: str = "weighted_sum"  # or "rrf"
     ) -> tuple[list[SearchResult], list[float]]:
-        """
-        Perform hybrid search.
-        
-        Returns:
-            - results: List of SearchResult objects
-            - query_vector: The query embedding (for reranking)
-        
-        HOW it works:
-        1. Tokenize query for BM25
-        2. Embed query for vector search
-        3. Execute hybrid query in ES
-        4. Normalize and combine scores
-        5. Return top-k results
-        """
-        # Step 1: Tokenize query for BM25
         query_tokens = self.tokenizer.tokenize_query(query)
         query_text = " ".join(query_tokens)
-        
-        # Step 2: Embed query for vector search
+
         embedder.load()
         query_vector, _ = embedder.encode_query(query)
-        
-        # Step 3: Build hybrid query
-        # This uses ES's native capabilities for both searches
-        search_query = self._build_hybrid_query(
-            query_text=query_text,
-            query_vector=query_vector.tolist(),
-            top_k=top_k * 2  # Get more for fusion
+
+        # Run two separate searches
+        bm25_resp = await self._bm25_search(query_text, top_k * 2)
+        knn_resp = await self._knn_search(query_vector.tolist(), top_k * 2)
+
+        # Fuse the scores
+        results = self._fuse_results(
+            bm25_resp=bm25_resp,
+            knn_resp=knn_resp,
+            query_vector=query_vector,
+            similarity_threshold=similarity_threshold,
+            method=fusion_method
         )
-        
-        # Step 4: Execute search
-        response = await self.client.search(
-            index=self.index_name,
-            body=search_query
-        )
-        
-        # Step 5: Process results
-        results = self._process_results(
-            response,
-            query_vector,
-            similarity_threshold
-        )
-        
+
         return results[:top_k], query_vector.tolist()
-    
-    def _build_hybrid_query(
-        self,
-        query_text: str,
-        query_vector: list[float],
-        top_k: int
-    ) -> dict:
-        """
-        Build Elasticsearch hybrid query.
-        
-        ES 8.x supports combining:
-        - match: BM25 text search
-        - knn: K-nearest neighbor vector search
-        
-        The scores are combined using a script_score or
-        we can use separate queries and fuse manually.
-        
-        For simplicity, we'll use ES's built-in KNN with
-        a filter for BM25 boosting.
-        """
+
+    async def _bm25_search(self, query_text: str, top_k: int) -> dict:
+        search = (
+            Search(using=self.client, index=self.index_name)
+            .query(Q("bool", should=[
+                Q("match", content_ltks={"query": query_text}),
+                Q("match", title_tks={"query": query_text, "boost": 2.0})
+            ]))
+            .extra(size=top_k)
+            .source(includes=["chunk_id", "doc_id", "content", "title_tks", "chunk_index"])
+        )
+        return await self.client.search(index=self.index_name, body=search.to_dict())
+
+    async def _knn_search(self, query_vector: list[float], top_k: int) -> dict:
         vector_field = f"q_{settings.embedding_dimension}_vec"
-        
-        return {
-            "size": top_k,
-            "_source": ["chunk_id", "doc_id", "content", "title_tks", "chunk_index"],
-            "query": {
-                "bool": {
-                    "should": [
-                        # BM25 text search
-                        {
-                            "match": {
-                                "content_ltks": {
-                                    "query": query_text,
-                                    "boost": self.bm25_weight
-                                }
-                            }
-                        },
-                        # Title boost
-                        {
-                            "match": {
-                                "title_tks": {
-                                    "query": query_text,
-                                    "boost": self.bm25_weight * 2  # Title is more important
-                                }
-                            }
-                        }
-                    ]
-                }
-            },
-            # KNN search (runs in parallel)
-            "knn": {
-                "field": vector_field,
-                "query_vector": query_vector,
-                "k": top_k,
-                "num_candidates": top_k * 10,  # For accuracy
-                "boost": self.vector_weight
-            }
-        }
-    
-    def _process_results(
+        search = (
+            Search(using=self.client, index=self.index_name)
+            .knn(Knn(
+                field=vector_field,
+                query_vector=query_vector,
+                k=top_k,
+                num_candidates=top_k * 10
+            ))
+            .extra(size=top_k)
+            .source(includes=["chunk_id", "doc_id", "content", "title_tks", "chunk_index", vector_field])
+        )
+        return await self.client.search(index=self.index_name, body=search.to_dict())
+
+    def _fuse_results(
         self,
-        response: dict,
+        bm25_resp: dict,
+        knn_resp: dict,
         query_vector: np.ndarray,
-        similarity_threshold: float
+        similarity_threshold: float,
+        method: str
     ) -> list[SearchResult]:
-        """
-        Process ES response into SearchResult objects.
-        
-        We also compute individual BM25 and vector scores
-        for transparency.
-        """
-        results = []
         vector_field = f"q_{settings.embedding_dimension}_vec"
-        
-        for hit in response["hits"]["hits"]:
-            source = hit["_source"]
-            score = hit["_score"]
-            
-            # Get the stored vector to compute vector similarity
-            # (ES doesn't return this by default in hybrid queries)
+
+        def hits_to_scores(resp: dict) -> dict[str, float]:
+            hits = resp.get("hits", {}).get("hits", [])
+            return {h["_source"]["chunk_id"]: float(h["_score"]) for h in hits}
+
+        def hits_to_sources(resp: dict) -> dict[str, dict]:
+            hits = resp.get("hits", {}).get("hits", [])
+            return {h["_source"]["chunk_id"]: h["_source"] for h in hits}
+
+        bm25_scores = hits_to_scores(bm25_resp)
+        knn_scores = hits_to_scores(knn_resp)
+        sources = {**hits_to_sources(bm25_resp), **hits_to_sources(knn_resp)}
+
+        if method == "rrf":
+            fused_scores = self._rrf_fusion(bm25_scores, knn_scores)
+        else:
+            bm25_norm = self._minmax_normalize(bm25_scores)
+            knn_norm = self._minmax_normalize(knn_scores)
+            all_ids = set(bm25_norm) | set(knn_norm)
+            fused_scores = {
+                cid: (self.bm25_weight * bm25_norm.get(cid, 0.0)) +
+                     (self.vector_weight * knn_norm.get(cid, 0.0))
+                for cid in all_ids
+            }
+
+        results = []
+        for chunk_id, fused_score in fused_scores.items():
+            source = sources.get(chunk_id, {})
             doc_vector = source.get(vector_field, [])
-            if doc_vector:
-                vector_score = self._cosine_similarity(query_vector, np.array(doc_vector))
-            else:
-                vector_score = 0.0
-            
-            # Approximate BM25 score (ES combines them)
-            bm25_score = max(0, score - vector_score * self.vector_weight) / self.bm25_weight
-            
-            # Filter by similarity threshold
+            vector_score = self._cosine_similarity(query_vector, np.array(doc_vector)) if doc_vector else 0.0
             if vector_score < similarity_threshold:
                 continue
-            
             results.append(SearchResult(
-                chunk_id=source["chunk_id"],
-                doc_id=source["doc_id"],
-                content=source["content"],
+                chunk_id=chunk_id,
+                doc_id=source.get("doc_id", ""),
+                content=source.get("content", ""),
                 title=source.get("title_tks", ""),
-                score=float(score),
-                bm25_score=float(bm25_score),
+                score=float(fused_score),
+                bm25_score=float(bm25_scores.get(chunk_id, 0.0)),
                 vector_score=float(vector_score)
             ))
-        
-        # Sort by combined score
+
         results.sort(key=lambda x: x.score, reverse=True)
         return results
-    
+
+    def _rrf_fusion(self, bm25_scores: dict[str, float], knn_scores: dict[str, float]) -> dict[str, float]:
+        def to_rank_map(scores: dict[str, float]) -> dict[str, int]:
+            ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            return {doc_id: rank + 1 for rank, (doc_id, _) in enumerate(ranked)}
+
+        bm25_ranks = to_rank_map(bm25_scores)
+        knn_ranks = to_rank_map(knn_scores)
+        all_ids = set(bm25_ranks) | set(knn_ranks)
+
+        fused = {}
+        for cid in all_ids:
+            rrf_score = 0.0
+            if cid in bm25_ranks:
+                rrf_score += 1.0 / (self.rrf_k + bm25_ranks[cid])
+            if cid in knn_ranks:
+                rrf_score += 1.0 / (self.rrf_k + knn_ranks[cid])
+            fused[cid] = rrf_score
+        return fused
+
+    @staticmethod
+    def _minmax_normalize(scores: dict[str, float]) -> dict[str, float]:
+        if not scores:
+            return {}
+        values = list(scores.values())
+        min_s = min(values)
+        max_s = max(values)
+        if max_s == min_s:
+            return {k: 1.0 for k in scores}
+        return {k: (v - min_s) / (max_s - min_s) for k, v in scores.items()}
+
     @staticmethod
     def _cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
-        """Compute cosine similarity between two vectors"""
         dot_product = np.dot(vec_a, vec_b)
         norm_a = np.linalg.norm(vec_a)
         norm_b = np.linalg.norm(vec_b)
-        
         if norm_a == 0 or norm_b == 0:
             return 0.0
-        
         return float(dot_product / (norm_a * norm_b))
+```
 
+#### Understanding elasticsearch-dsl Query Building
 
-# Singleton instance
-searcher = HybridSearcher()
+The key benefit of `elasticsearch-dsl` is its Pythonic interface for building queries:
+
+**Raw dict approach (old):**
+```python
+{
+    "query": {
+        "bool": {
+            "should": [
+                {"match": {"content_ltks": {"query": text, "boost": 0.05}}}
+            ]
+        }
+    }
+}
+```
+
+**elasticsearch-dsl approach (new):**
+```python
+from elasticsearch_dsl import Search, Q
+
+content_match = Q('match', content_ltks={'query': text, 'boost': 0.05})
+search = Search(using=client, index=index_name).query(Q('bool', should=[content_match]))
+```
+
+**Key elasticsearch-dsl classes:**
+
+| Class | Purpose | Example |
+|-------|---------|---------|
+| `Search` | Main search builder | `Search(using=client, index=index_name).query(q)` |
+| `Q` | Query factory | `Q('match', field={'query': text})` |
+| `Knn` | KNN vector query | `Knn(field='vec', query_vector=[...])` |
+
+**Chaining methods:**
+```python
+search = (
+    Search(using=client, index=index_name)
+    .query(bool_query)           # BM25-only query
+    .source(includes=['field'])  # Select fields
+    .extra(size=10)              # Set size
+    .highlight('content')        # Add highlighting
+)
+
+# Convert to dict for raw client
+search.to_dict()
 ```
 
 ---
