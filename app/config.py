@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     vector_weight: float
     top_k: int
     database_url: str
+    rerank_model: str
 
     class Config:
         env_file = '.env'

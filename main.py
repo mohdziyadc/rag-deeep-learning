@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from core.indexer import ESIndexer
+from core.reranker import reranker
 
 from app.config import get_settings
 import logging
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     await indexer.connect()
     await indexer.create_index()
     embedder.load()
+    reranker.load()
     yield
     
     await indexer.close()
