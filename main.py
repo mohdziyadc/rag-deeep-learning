@@ -7,30 +7,40 @@ load_dotenv()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from core.indexer import ESIndexer
+from core.indexer import indexer
 from core.reranker import reranker
+from app.api.routes import documents
 
 from app.config import get_settings
 import logging
 logging.basicConfig(level=logging.INFO, force=True)
 
-indexer = ESIndexer()
+
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"🔍 ES_INDEX = '{settings.es_index}'")  # Add this
-    print(f"🔍 ES_HOST = '{settings.es_host}'")
-    print(f"indexer.index_name = {indexer.index_name!r}") 
     await indexer.connect()
     await indexer.create_index()
+    await searcher.connect()
     embedder.load()
     reranker.load()
-    yield
+    logger.info("Mini RAG ready!")
     
-    await indexer.close()
+    yield
 
-app = FastAPI(title="RAG Deep Learning API", lifespan=lifespan)
+    logger.info("Shutting down...")
+    await indexer.close()
+    await searcher.close()
+
+app = FastAPI(
+    title="Mini RAG", 
+    lifespan=lifespan,
+    version="0.0.0",
+)
+
+app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 
 
 @app.get("/")

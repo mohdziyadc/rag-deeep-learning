@@ -172,3 +172,7 @@ class ESIndexer:
              "total_docs": stats["_all"]["primaries"]["docs"]["count"],
             "size_bytes": stats["_all"]["primaries"]["store"]["size_in_bytes"]
         }
+
+
+# Shared instance
+indexer = ESIndexer()

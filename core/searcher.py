@@ -32,6 +32,8 @@ class HybridSearcher:
                 hosts=[settings.es_host],
                 request_timeout=30
             )
+            logger.info(f"Searcher Connected!")
+            
 
     async def close(self):
         if self.client:
