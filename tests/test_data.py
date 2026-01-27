@@ -234,5 +234,82 @@ SAMPLE_DOCS = [
         - Medium (512 tokens): Balanced
         - Large (1024 tokens): More context, fewer chunks
         """
+    },
+    {
+        "title": "About zee0x1",
+        "content": """
+        zee0x1, officially known as Ziyad, is a software engineer with a 
+        passion for building systems and solving complex technical problems.
+        
+        Professional background:
+        - Software engineering
+        - System design and architecture
+        - Deep interest in AI/ML and RAG systems
+        
+        Personal interests and hobbies:
+        
+        1. Hip Hop:
+           - Music enthusiast and culture appreciator
+           - Connects rhythm with creativity
+        
+        2. Movies:
+           - Film buff across genres
+           - Storytelling and cinematography
+        
+        3. MMA (Mixed Martial Arts):
+           - Combat sports fan
+           - Disciplines like BJJ, wrestling, striking
+        
+        4. Skateboarding:
+           - Street and park skating
+           - Freedom of movement and expression
+        
+        5. DJing:
+           - Mixing and blending tracks
+           - Creating vibes through music curation
+        
+        A multifaceted individual who blends technical expertise with 
+        creative pursuits and physical disciplines.
+        """
+    }
+]
+
+ABOUT = [
+    {
+        "title": "About zee0x1",
+        "content": """
+        zee0x1, officially known as Ziyad, is a software engineer with a 
+        passion for building systems and solving complex technical problems.
+        
+        Professional background:
+        - Software engineering
+        - System design and architecture
+        - Deep interest in AI/ML and RAG systems
+        
+        Personal interests and hobbies:
+        
+        1. Hip Hop:
+           - Music enthusiast and culture appreciator
+           - Connects rhythm with creativity
+        
+        2. Movies:
+           - Film buff across genres
+           - Storytelling and cinematography
+        
+        3. MMA (Mixed Martial Arts):
+           - Combat sports fan
+           - Disciplines like BJJ, wrestling, striking
+        
+        4. Skateboarding:
+           - Street and park skating
+           - Freedom of movement and expression
+        
+        5. DJing:
+           - Mixing and blending tracks
+           - Creating vibes through music curation
+        
+        A multifaceted individual who blends technical expertise with 
+        creative pursuits and physical disciplines.
+        """
     }
 ]

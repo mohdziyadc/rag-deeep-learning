@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from core.indexer import indexer
 from core.reranker import reranker
 from app.api.routes import documents
+from app.api.routes import search
 
 from app.config import get_settings
 import logging
@@ -41,6 +42,7 @@ app = FastAPI(
 )
 
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
+app.include_router(search.router, prefix="/api/search", tags=["Search"] )
 
 
 @app.get("/")

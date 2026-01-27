@@ -1,6 +1,6 @@
 
 import requests
-from test_data import SAMPLE_DOCS
+from test_data import SAMPLE_DOCS, ABOUT
 
 def test_ingest():
 
@@ -10,7 +10,7 @@ def test_ingest():
 
     doc_ids = []
 
-    for i, doc in enumerate(SAMPLE_DOCS):
+    for i, doc in enumerate(ABOUT):
         response = requests.post(
             'http://localhost:8000/api/documents/ingest',
             json={

@@ -53,7 +53,6 @@ class NaiveChunker:
                     "metadata": metadata or {},
                     "created_at": datetime.utcnow().isoformat()
                 })
-
                 chunk_idx += 1
 
             start = end - self.chunk_overlap

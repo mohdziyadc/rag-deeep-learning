@@ -104,14 +104,12 @@ class HybridSearcher:
 
         search = Search(using=self.client, index=self.indexname)
 
-        knn_query = Knn(
+        search = search.knn(
             field=vector_field,
             query_vector=query_vector,
             k=top_k,
             num_candidates=top_k*10
-        )
-
-        search = search.knn(knn_query).extra(size=top_k).source(
+        ).extra(size=top_k).source(
             includes=["chunk_id", "doc_id", "content", "title_tks", "chunk_index", vector_field]
         )
 
@@ -190,7 +188,7 @@ class HybridSearcher:
             
             results.append(SearchResult(
                 chunk_id=chunk_id,
-                doc_id=source.get("doc_id", ""),
+                document_id=source.get("doc_id", ""),
                 content=source.get("content", ""),
                 title=source.get("title_tks", ""),
                 score=float(fused_score),
