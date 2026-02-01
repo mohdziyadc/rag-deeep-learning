@@ -39,7 +39,8 @@ Pipeline view:
 └───────────┘   └──────────────┘   └──────────────┘   └─────────────┘   └──────────┘
 ```
 
-Core idea: **parsing is a conversion problem**. Whatever the input (PDF, Google Doc, image, audio), the output must be **structured text + metadata**, then chunked, then indexed.
+Core idea: **parsing is a conversion problem**. Whatever the input (PDF, Google Doc, image, audio), this pipeline should be followed:
+**input → type‑preserving intermediate representation → schema‑aware chunking → indexable chunks + metadata. -> chunking -> indexing**
 
 ---
 
@@ -188,7 +189,8 @@ from datetime import datetime
 @dataclass
 class ParsedSection:
     text: str
-    section_type: str = "text"  # text, table, image, metadata
+    section_type: str = "text"  # text, table, image, header, slide, metadata
+    content_format: str = "text"  # text, html, json
     page: Optional[int] = None
     title: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -215,6 +217,7 @@ class ChunkedDocument:
     source_name: str
     file_type: str
     section_type: str
+    content_format: str
     page: Optional[int]
     title: Optional[str]
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -442,6 +445,7 @@ class ImageOcrParser:
         return ParsedSection(
             text=text,
             section_type="image",
+            content_format="text",
             page=metadata.get("page"),
             title=metadata.get("title"),
             metadata=metadata,
@@ -462,6 +466,26 @@ class ImageOcrParser:
 ```
 
 This lets any file parser pass images to OCR without duplicating OCR logic.
+
+---
+
+### Step 2.75: Intermediate Representations by File Type (Preserve Context)
+
+We do **not** force everything into plain text early. Each parser outputs an **intermediate representation** that preserves structure and relationships, then chunking is applied in a type-aware way.
+
+| File Type | Intermediate Representation | Why It Preserves Context |
+|-----------|-----------------------------|---------------------------|
+| PDF | Per-page text + OCR image sections | Maintains page boundaries + image text |
+| DOCX | JSON-like sections + HTML tables | Keeps headings, paragraphs, and tables |
+| XLSX/CSV | HTML tables (per sheet, chunked by rows) | Preserves table layout and headers |
+| PPTX | Slide JSON sections (title/body/notes) | Keeps slide boundaries and roles |
+| HTML | Block text + HTML table sections | Keeps DOM grouping and tables |
+| Markdown | Heading‑scoped text blocks | Preserves hierarchy and sections |
+| JSON | JSON text as a single block | Preserves key/value structure |
+| Email | Header JSON + body text + attachment metadata | Preserves fields + context |
+| Images | OCR text sections + image metadata | Keeps image origin and location |
+
+This mirrors RAGFlow’s “output_format per parser” design (e.g., spreadsheets output HTML; slides output JSON) and avoids losing relational context before retrieval.
 
 ---
 
@@ -496,6 +520,7 @@ class PdfParser:
                         ParsedSection(
                             text=text.strip(),
                             section_type="text",
+                            content_format="text",
                             page=i + 1,
                         )
                     )
@@ -550,6 +575,7 @@ class DocxParser:
                     ParsedSection(
                         text=text,
                         section_type="text",
+                        content_format="text",
                         title=p.style.name if p.style else None,
                     )
                 )
@@ -559,8 +585,16 @@ class DocxParser:
             for row in table.rows:
                 rows.append([cell.text.strip() for cell in row.cells])
             if rows:
-                table_text = "\n".join([", ".join(r) for r in rows])
-                sections.append(ParsedSection(text=table_text, section_type="table"))
+                table_html = "<table>" + "".join(
+                    ["<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>" for r in rows]
+                ) + "</table>"
+                sections.append(
+                    ParsedSection(
+                        text=table_html,
+                        section_type="table",
+                        content_format="html",
+                    )
+                )
 
         # Embedded images OCR
         for rel in doc.part._rels.values():
@@ -605,20 +639,48 @@ class PptxParser:
         ocr = ImageOcrParser()
 
         for i, slide in enumerate(prs.slides):
-            texts: list[str] = []
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    t = shape.text.strip()
-                    if t:
-                        texts.append(t)
-            if texts:
+            slide_num = i + 1
+            title_text = slide.shapes.title.text.strip() if slide.shapes.title else ""
+            if title_text:
                 sections.append(
                     ParsedSection(
-                        text="\n".join(texts),
-                        section_type="text",
-                        page=i + 1,
+                        text=title_text,
+                        section_type="slide_title",
+                        content_format="text",
+                        page=slide_num,
+                        metadata={"slide_num": slide_num},
                     )
                 )
+
+            body_texts: list[str] = []
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape is not slide.shapes.title:
+                    t = shape.text.strip()
+                    if t:
+                        body_texts.append(t)
+            if body_texts:
+                sections.append(
+                    ParsedSection(
+                        text="\n".join(body_texts),
+                        section_type="slide_body",
+                        content_format="text",
+                        page=slide_num,
+                        metadata={"slide_num": slide_num},
+                    )
+                )
+
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                notes = slide.notes_slide.notes_text_frame.text.strip()
+                if notes:
+                    sections.append(
+                        ParsedSection(
+                            text=notes,
+                            section_type="slide_notes",
+                            content_format="text",
+                            page=slide_num,
+                            metadata={"slide_num": slide_num},
+                        )
+                    )
             # Embedded images OCR per slide
             for shape in slide.shapes:
                 if hasattr(shape, "image"):
@@ -660,6 +722,7 @@ class XlsxParser:
     def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
         sections: list[ParsedSection] = []
         ocr = ImageOcrParser()
+        chunk_rows = metadata.get("sheet_chunk_rows", 200)
 
         try:
             wb = load_workbook(BytesIO(data), data_only=True)
@@ -668,15 +731,26 @@ class XlsxParser:
                 rows = []
                 for row in ws.iter_rows(values_only=True):
                     row_vals = [str(cell).strip() if cell is not None else "" for cell in row]
-                    rows.append(", ".join(row_vals))
+                    rows.append(row_vals)
                 if rows:
-                    sections.append(
-                        ParsedSection(
-                            text="\n".join(rows),
-                            section_type="table",
-                            title=sheet,
+                    headers = rows[0]
+                    data_rows = rows[1:]
+                    for i in range(0, len(data_rows), chunk_rows):
+                        chunk = data_rows[i : i + chunk_rows]
+                        html = "<table>"
+                        html += "<tr>" + "".join([f"<th>{h}</th>" for h in headers]) + "</tr>"
+                        for r in chunk:
+                            html += "<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>"
+                        html += "</table>"
+                        sections.append(
+                            ParsedSection(
+                                text=html,
+                                section_type="table",
+                                content_format="html",
+                                title=sheet,
+                                metadata={"sheet": sheet, "row_start": i + 1},
+                            )
                         )
-                    )
                 # Embedded images OCR
                 for img in getattr(ws, "_images", []):
                     try:
@@ -688,10 +762,23 @@ class XlsxParser:
                         continue
         except Exception:
             df = pd.read_csv(BytesIO(data))
-            rows = [", ".join(map(str, df.columns))]
-            for _, row in df.iterrows():
-                rows.append(", ".join(map(str, row.values)))
-            sections.append(ParsedSection(text="\n".join(rows), section_type="table"))
+            headers = list(df.columns)
+            data_rows = [list(map(str, row.values)) for _, row in df.iterrows()]
+            for i in range(0, len(data_rows), chunk_rows):
+                chunk = data_rows[i : i + chunk_rows]
+                html = "<table>"
+                html += "<tr>" + "".join([f"<th>{h}</th>" for h in headers]) + "</tr>"
+                for r in chunk:
+                    html += "<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>"
+                html += "</table>"
+                sections.append(
+                    ParsedSection(
+                        text=html,
+                        section_type="table",
+                        content_format="html",
+                        metadata={"row_start": i + 1},
+                    )
+                )
 
         raw_text = "\n".join([s.text for s in sections])
         title = metadata.get("title", name)
@@ -730,8 +817,21 @@ class HtmlParser:
         for tag in soup(["script", "style"]):
             tag.extract()
 
+        # Extract tables as structured HTML sections
+        sections: list[ParsedSection] = []
+        for table in soup.find_all("table"):
+            sections.append(
+                ParsedSection(
+                    text=str(table),
+                    section_type="table",
+                    content_format="html",
+                )
+            )
+            table.decompose()
+
         text = soup.get_text("\n")
-        sections = [ParsedSection(text=text.strip(), section_type="text")]
+        if text.strip():
+            sections.append(ParsedSection(text=text.strip(), section_type="text", content_format="text"))
 
         # Embedded base64 images (data URIs)
         for img in soup.find_all("img"):
@@ -745,7 +845,7 @@ class HtmlParser:
                         sections.append(image_section)
                 except Exception:
                     continue
-        raw_text = text.strip()
+        raw_text = "\n".join([s.text for s in sections if s.content_format == "text"])
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -777,13 +877,43 @@ class MarkdownParser:
         md = MarkdownIt()
         tokens = md.parse(md_text)
 
-        lines = []
-        for t in tokens:
-            if t.type == "inline" and t.content.strip():
-                lines.append(t.content.strip())
+        sections: list[ParsedSection] = []
+        current_heading = "Untitled"
+        current_lines: list[str] = []
+        in_heading = False
 
-        text = "\n".join(lines)
-        sections = [ParsedSection(text=text, section_type="text")]
+        for t in tokens:
+            if t.type == "heading_open":
+                if current_lines:
+                    sections.append(
+                        ParsedSection(
+                            text="\n".join(current_lines),
+                            section_type="text",
+                            content_format="text",
+                            metadata={"heading": current_heading},
+                        )
+                    )
+                    current_lines = []
+                in_heading = True
+                continue
+            if t.type == "inline" and t.content.strip():
+                if in_heading:
+                    current_heading = t.content.strip()
+                    in_heading = False
+                else:
+                    current_lines.append(t.content.strip())
+
+        if current_lines:
+            sections.append(
+                ParsedSection(
+                    text="\n".join(current_lines),
+                    section_type="text",
+                    content_format="text",
+                    metadata={"heading": current_heading},
+                )
+            )
+
+        text = "\n".join([s.text for s in sections])
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -813,7 +943,7 @@ class JsonParser:
     def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
         obj = json.loads(data.decode("utf-8", errors="ignore"))
         text = json.dumps(obj, indent=2, ensure_ascii=False)
-        sections = [ParsedSection(text=text, section_type="text")]
+        sections = [ParsedSection(text=text, section_type="json", content_format="json")]
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -844,7 +974,7 @@ class TextParser:
         detected = chardet.detect(data)
         encoding = detected.get("encoding") or "utf-8"
         text = data.decode(encoding, errors="ignore")
-        sections = [ParsedSection(text=text, section_type="text")]
+        sections = [ParsedSection(text=text, section_type="text", content_format="text")]
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -924,6 +1054,7 @@ RAGFlow reference:
 ```python
 from typing import Any
 import email
+import json
 from email import policy
 from models.parsed import ParsedDocument, ParsedSection
 
@@ -935,18 +1066,32 @@ class EmailParser:
         subject = msg.get("subject", "")
         from_addr = msg.get("from", "")
         to_addr = msg.get("to", "")
+        cc_addr = msg.get("cc", "")
+        date = msg.get("date", "")
 
         body = ""
+        attachments = []
         if msg.is_multipart():
             for part in msg.walk():
                 if part.get_content_type() == "text/plain":
                     body = part.get_content()
-                    break
+                if part.get_filename():
+                    attachments.append(part.get_filename())
         else:
             body = msg.get_content()
 
-        text = f"Subject: {subject}\nFrom: {from_addr}\nTo: {to_addr}\n\n{body}"
-        sections = [ParsedSection(text=text, section_type="text")]
+        header_json = {
+            "subject": subject,
+            "from": from_addr,
+            "to": to_addr,
+            "cc": cc_addr,
+            "date": date,
+            "attachments": attachments,
+        }
+        sections = [
+            ParsedSection(text=json.dumps(header_json, indent=2), section_type="header", content_format="json"),
+            ParsedSection(text=body or "", section_type="body", content_format="text"),
+        ]
         title = subject or metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -954,7 +1099,7 @@ class EmailParser:
             file_type="email",
             title=title,
             sections=sections,
-            raw_text=text,
+            raw_text=body or "",
             metadata=metadata,
         )
 ```
@@ -976,7 +1121,7 @@ from models.parsed import ParsedDocument, ParsedSection
 class AudioParser:
     def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
         text = "[AUDIO TRANSCRIPTION PENDING]"
-        sections = [ParsedSection(text=text, section_type="text")]
+        sections = [ParsedSection(text=text, section_type="text", content_format="text")]
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -997,7 +1142,7 @@ from models.parsed import ParsedDocument, ParsedSection
 class VideoParser:
     def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
         text = "[VIDEO TRANSCRIPTION PENDING]"
-        sections = [ParsedSection(text=text, section_type="text")]
+        sections = [ParsedSection(text=text, section_type="text", content_format="text")]
         title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
@@ -1117,6 +1262,7 @@ RAGFlow reference:
 ### Step 5: Normalization
 
 Normalization is where you align all file types into one clean, structured representation. This matches RAGFlow’s internal JSON outputs.
+The key rule: **normalize without flattening**. Preserve section boundaries, content format (text/html/json), and structural metadata so chunking can remain type-aware.
 
 Create `core/normalization/normalizer.py`:
 
@@ -1144,15 +1290,16 @@ Why this matters:
 
 ---
 
-### Step 6: Chunking (Production-Ready)
+### Step 6: Chunking (Schema-Aware)
 
-Use `langchain-text-splitters` to avoid re-implementing chunk logic.
+We use `langchain-text-splitters` for plain text, but **tables and JSON are chunked differently** to preserve relationships (table rows stay together, JSON isn’t split arbitrarily).
 
 Create `core/chunking/chunker.py`:
 
 ```python
 from typing import List
 import uuid
+from bs4 import BeautifulSoup
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from models.parsed import ParsedDocument, ChunkedDocument
 
@@ -1165,12 +1312,34 @@ class DocumentChunker:
             separators=["\n\n", "\n", " ", ""],
         )
 
+    def _split_html_table(self, html: str, chunk_rows: int = 200) -> list[str]:
+        soup = BeautifulSoup(html, "html.parser")
+        rows = soup.find_all("tr")
+        if not rows:
+            return [html]
+        header = rows[0]
+        body_rows = rows[1:] if len(rows) > 1 else []
+        chunks = []
+        for i in range(0, len(body_rows), chunk_rows):
+            tbl = BeautifulSoup("<table></table>", "html.parser")
+            table = tbl.table
+            table.append(header)
+            for r in body_rows[i : i + chunk_rows]:
+                table.append(r)
+            chunks.append(str(table))
+        return chunks or [html]
+
     def chunk(self, doc: ParsedDocument) -> list[ChunkedDocument]:
         chunks: list[ChunkedDocument] = []
         chunk_index = 0
 
         for section in doc.sections:
-            splits = self.splitter.split_text(section.text)
+            if section.content_format == "html" and section.section_type == "table":
+                splits = self._split_html_table(section.text, chunk_rows=doc.metadata.get("sheet_chunk_rows", 200))
+            elif section.content_format == "json":
+                splits = [section.text]
+            else:
+                splits = self.splitter.split_text(section.text)
             for text in splits:
                 chunks.append(
                     ChunkedDocument(
@@ -1181,6 +1350,7 @@ class DocumentChunker:
                         source_name=doc.source_name,
                         file_type=doc.file_type,
                         section_type=section.section_type,
+                        content_format=section.content_format,
                         page=section.page,
                         title=section.title or doc.title,
                         metadata=section.metadata | doc.metadata,
@@ -1225,6 +1395,7 @@ PARSED_INDEX_MAPPING = {
             "source_name": {"type": "keyword"},
             "file_type": {"type": "keyword"},
             "section_type": {"type": "keyword"},
+            "content_format": {"type": "keyword"},
             "title": {"type": "text", "analyzer": "whitespace_lowercase"},
             "page": {"type": "integer"},
             "content": {"type": "text"},
@@ -1337,21 +1508,21 @@ This is your Phase 2 entry point. It mirrors the RAGFlow ingestion pipeline but 
 
 ## 5. File-Type Coverage Matrix and Parser Choices
 
-| File Type | Parser Used | Library | RAGFlow Reference |
-|-----------|-------------|---------|-------------------|
-| PDF | Plain-text parser | pdfplumber + pypdf | `deepdoc/parser/pdf_parser.py` |
-| DOCX | Docx parser | python-docx | `deepdoc/parser/docx_parser.py` |
-| XLSX/XLS/CSV | Spreadsheet parser | openpyxl + pandas | `deepdoc/parser/excel_parser.py` |
-| PPTX/PPT | Slides parser | python-pptx | `deepdoc/parser/ppt_parser.py` |
-| HTML | HTML parser | BeautifulSoup | `deepdoc/parser/html_parser.py` |
-| Markdown | Markdown parser | markdown-it-py | `deepdoc/parser/markdown_parser.py` |
-| JSON | JSON parser | json | `deepdoc/parser/json_parser.py` |
-| TXT | Text parser | chardet | `deepdoc/parser/txt_parser.py` |
-| Images | OCR parser | PaddleOCR | `deepdoc/vision/ocr.py` |
-| Embedded images (PDF/DOCX/PPTX/XLSX/HTML) | Secondary OCR pass | PaddleOCR | `deepdoc/vision/ocr.py` + `deepdoc/parser/pdf_parser.py` |
-| Google Docs | Export -> DOCX | Google API | `common/data_source/google_drive/*` |
-| Google Sheets | Export -> XLSX | Google API | `common/data_source/google_drive/*` |
-| Google Slides | Export -> PPTX | Google API | `common/data_source/google_drive/*` |
+| File Type | Parser Used | Intermediate Representation | Library | RAGFlow Reference |
+|-----------|-------------|-----------------------------|---------|-------------------|
+| PDF | Plain-text parser | Per-page text + OCR image sections | pdfplumber + pypdf | `deepdoc/parser/pdf_parser.py` |
+| DOCX | Docx parser | JSON sections + HTML tables | python-docx | `deepdoc/parser/docx_parser.py` |
+| XLSX/XLS/CSV | Spreadsheet parser | HTML tables (per sheet/row chunk) | openpyxl + pandas | `deepdoc/parser/excel_parser.py` |
+| PPTX/PPT | Slides parser | Slide sections (title/body/notes) | python-pptx | `deepdoc/parser/ppt_parser.py` |
+| HTML | HTML parser | Block text + HTML tables | BeautifulSoup | `deepdoc/parser/html_parser.py` |
+| Markdown | Markdown parser | Heading-scoped text blocks | markdown-it-py | `deepdoc/parser/markdown_parser.py` |
+| JSON | JSON parser | JSON text block | json | `deepdoc/parser/json_parser.py` |
+| TXT | Text parser | Plain text block | chardet | `deepdoc/parser/txt_parser.py` |
+| Images | OCR parser | OCR text + image metadata | PaddleOCR | `deepdoc/vision/ocr.py` |
+| Embedded images (PDF/DOCX/PPTX/XLSX/HTML) | Secondary OCR pass | OCR text + location metadata | PaddleOCR | `deepdoc/vision/ocr.py` + `deepdoc/parser/pdf_parser.py` |
+| Google Docs | Export -> DOCX | DOCX -> JSON + HTML tables | Google API | `common/data_source/google_drive/*` |
+| Google Sheets | Export -> XLSX | XLSX -> HTML tables | Google API | `common/data_source/google_drive/*` |
+| Google Slides | Export -> PPTX | PPTX -> slide sections | Google API | `common/data_source/google_drive/*` |
 
 If a file type has no stable library and no easy raw parser, then the fallback is:
 - Export to a supported format (Google native types).
@@ -1429,11 +1600,12 @@ Final ingestion flow:
 1. Receive file (local upload or Google export).
 2. Determine file extension.
 3. Parse with correct parser.
-4. OCR embedded images (if present).
-5. Normalize sections.
-6. Chunk with splitter.
-7. Insert into new ES index.
-8. Update Postgres metadata status.
+4. Produce a type-specific intermediate representation.
+5. OCR embedded images (if present).
+6. Normalize sections (without flattening structure).
+7. Chunk with schema-aware splitter.
+8. Insert into new ES index.
+9. Update Postgres metadata status.
 
 This directly mirrors the RAGFlow ingestion pipeline: parser -> chunk -> store (+ metadata updates).
 
