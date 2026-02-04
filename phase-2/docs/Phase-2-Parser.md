@@ -91,17 +91,8 @@ rag-deep-learning/
 │   ├── parsers/
 │   │   ├── base.py
 │   │   ├── registry.py
-│   │   ├── pdf.py
-│   │   ├── docx.py
-│   │   ├── pptx.py
-│   │   ├── xlsx.py
-│   │   ├── html.py
-│   │   ├── markdown.py
-│   │   ├── json_parser.py
-│   │   ├── text.py
-│   │   ├── image_ocr.py
+│   │   ├── docling_parser.py
 │   │   ├── email.py
-│   │   ├── audio.py
 │   │   └── video.py
 │   ├── normalization/
 │   │   └── normalizer.py
@@ -125,9 +116,9 @@ This mirrors RAGFlow’s separation:
 
 ## 4. Step-by-Step Implementation
 
-### Step 0: Dependencies (Production-Ready First)
+### Step 0: Dependencies (Docling-First)
 
-We prioritize open-source libraries already used in production and in RAGFlow-like stacks.
+We prioritize **Docling** as the unified parser so you do not need separate libraries for PDF/DOCX/PPTX/XLSX/HTML/Markdown/JSON/TXT/image OCR.
 
 Add these dependencies to your `pyproject.toml` (exact code):
 
@@ -136,41 +127,33 @@ Add these dependencies to your `pyproject.toml` (exact code):
 dependencies = [
     # Existing Phase 1 deps...
 
-    # File parsing
-    "pypdf>=4.2.0",
-    "pdfplumber>=0.11.0",
-    "python-docx>=1.1.2",
-    "python-pptx>=1.0.2",
-    "openpyxl>=3.1.5",
-    "pandas>=2.2.2",
-    "beautifulsoup4>=4.12.3",
-    "html5lib>=1.1",
-    "markdown-it-py>=3.0.0",
-    "chardet>=5.2.0",
+    # Unified parsing (Docling)
+    "docling>=2.72.0",
+
+    # Chunking helpers (table-aware splits)
+    "beautifulsoup4>=4.14.3",
 
     # API + DB
     "fastapi>=0.128.0",
-    "uvicorn[standard]>=0.30.0",
-    "sqlalchemy>=2.0.0",
-    "asyncpg>=0.29.0",
+    "uvicorn>=0.40.0",
+    "sqlalchemy[asyncio]>=2.0.46",
+    "asyncpg>=0.31.0",
+    "pydantic>=2.12.5",
 
-    # OCR (open-source, scalable)
-    "paddleocr>=2.7.3",
-    "paddlepaddle>=2.6.1",
+    # Chunking (Docling HybridChunker + text splitter for HTML paths)
+    "langchain-text-splitters>=1.1.0",
+    "transformers",
 
-    # Chunking (production-ready splitter)
-    "langchain-text-splitters>=0.3.0",
-
-    # Google Docs/Sheets/Slides (final resort)
-    "google-api-python-client>=2.125.0",
-    "google-auth>=2.29.0",
-    "google-auth-oauthlib>=1.2.0",
+    # Google Docs/Sheets/Slides (export only)
+    "google-api-python-client>=2.188.0",
+    "google-auth>=2.48.0",
+    "google-auth-oauthlib>=1.2.4",
 ]
 ```
 
 Why this matches RAGFlow:
-- RAGFlow uses **deepdoc** for PDF (complex OCR/layout) and basic libraries for DOCX/XLSX/PPTX/HTML.
-- You are using **open-source libraries** first. Google APIs are used only for Google-native formats (Docs/Sheets/Slides), which require API exports.
+- RAGFlow uses **deepdoc** for PDF (layout/OCR) and multiple format parsers. Docling provides the same role as a **single, unified parser**.
+- Google APIs are still required only for Google-native formats (Docs/Sheets/Slides), which need export before parsing.
 
 ---
 
@@ -289,53 +272,153 @@ class BaseParser(ABC):
         raise NotImplementedError
 ```
 
+Create `core/parsers/docling_parser.py`:
+
+```python
+from typing import Any
+import json
+import tempfile
+from bs4 import BeautifulSoup
+from docling.document_converter import DocumentConverter
+from core.parsers.base import BaseParser
+from models.parsed import ParsedDocument, ParsedSection
+
+
+JSON_EXTS = {
+    "ppt",
+    "pptx",
+    "pdf",
+    "doc",
+    "docx",
+    "txt",
+    "md",
+    "markdown",
+    "mdx",
+    "jpg",
+    "jpeg",
+    "png",
+    "gif",
+    "tif",
+    "tiff",
+    "bmp",
+    "webp",
+}
+HTML_EXTS = {"xls", "xlsx", "csv", "html", "htm"}
+AUDIO_EXTS = {"mp3", "wav", "vtt"}
+
+
+class DoclingParser(BaseParser):
+    def __init__(self) -> None:
+        self.converter = DocumentConverter()
+
+    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
+        title = metadata.get("title", name)
+        file_type = name.split(".")[-1].lower()
+
+        # Docling's public API expects a file path or URL, so write bytes to a temp file.
+        with tempfile.NamedTemporaryFile(suffix=f".{file_type}", delete=True) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            result = self.converter.convert(tmp.name)
+
+        sections: list[ParsedSection] = []
+        raw_text = ""
+
+        if file_type in JSON_EXTS:
+            doc_dict = result.document.export_to_dict()
+            json_text = json.dumps(doc_dict, indent=2, ensure_ascii=False)
+            sections.append(
+                ParsedSection(
+                    text=json_text,
+                    section_type="json",
+                    content_format="json",
+                    metadata={"docling": True},
+                )
+            )
+            raw_text = json_text
+        else:
+            html = result.document.export_to_html()
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Preserve tables as HTML blocks for table-aware chunking.
+            for table in soup.find_all("table"):
+                sections.append(
+                    ParsedSection(
+                        text=str(table),
+                        section_type="table",
+                        content_format="html",
+                        metadata={"docling": True},
+                    )
+                )
+                table.decompose()
+
+            # Remaining content becomes text in reading order.
+            text = soup.get_text("\n").strip()
+            if text:
+                section_type = "audio_transcript" if file_type in AUDIO_EXTS else "text"
+                sections.append(
+                    ParsedSection(
+                        text=text,
+                        section_type=section_type,
+                        content_format="text",
+                        metadata={"docling": True},
+                    )
+                )
+
+            raw_text = "\n".join([s.text for s in sections if s.content_format == "text"])
+        return ParsedDocument(
+            doc_id=metadata["doc_id"],
+            source_name=name,
+            file_type=file_type,
+            title=title,
+            sections=sections,
+            raw_text=raw_text,
+            metadata=metadata,
+        )
+```
+
 Create `core/parsers/registry.py`:
 
 ```python
 from typing import Any
 from core.parsers.base import BaseParser
-from core.parsers.pdf import PdfParser
-from core.parsers.docx import DocxParser
-from core.parsers.pptx import PptxParser
-from core.parsers.xlsx import XlsxParser
-from core.parsers.html import HtmlParser
-from core.parsers.markdown import MarkdownParser
-from core.parsers.json_parser import JsonParser
-from core.parsers.text import TextParser
-from core.parsers.image_ocr import ImageOcrParser
+from core.parsers.docling_parser import DoclingParser
 from core.parsers.email import EmailParser
-from core.parsers.audio import AudioParser
 from core.parsers.video import VideoParser
 
 
 class ParserRegistry:
     def __init__(self) -> None:
+        docling = DoclingParser()
         self._parsers: dict[str, BaseParser] = {
-            "pdf": PdfParser(),
-            "docx": DocxParser(),
-            "doc": DocxParser(),
-            "pptx": PptxParser(),
-            "ppt": PptxParser(),
-            "xlsx": XlsxParser(),
-            "xls": XlsxParser(),
-            "csv": XlsxParser(),
-            "html": HtmlParser(),
-            "htm": HtmlParser(),
-            "md": MarkdownParser(),
-            "markdown": MarkdownParser(),
-            "mdx": MarkdownParser(),
-            "json": JsonParser(),
-            "txt": TextParser(),
-            "jpg": ImageOcrParser(),
-            "jpeg": ImageOcrParser(),
-            "png": ImageOcrParser(),
-            "gif": ImageOcrParser(),
-            "tif": ImageOcrParser(),
-            "tiff": ImageOcrParser(),
+            "pdf": docling,
+            "docx": docling,
+            "doc": docling,
+            "pptx": docling,
+            "ppt": docling,
+            "xlsx": docling,
+            "xls": docling,
+            "csv": docling,
+            "html": docling,
+            "htm": docling,
+            "md": docling,
+            "markdown": docling,
+            "mdx": docling,
+            "json": docling,
+            "txt": docling,
+            "jpg": docling,
+            "jpeg": docling,
+            "png": docling,
+            "gif": docling,
+            "tif": docling,
+            "tiff": docling,
+            "bmp": docling,
+            "webp": docling,
+            "mp3": docling,
+            "wav": docling,
+            "vtt": docling,
             "eml": EmailParser(),
             "msg": EmailParser(),
-            "mp3": AudioParser(),
-            "wav": AudioParser(),
             "mp4": VideoParser(),
             "mkv": VideoParser(),
             "avi": VideoParser(),
@@ -404,68 +487,15 @@ This gives you the minimal relational layer you asked for: **files and documents
 
 ---
 
-### Step 2.5: Embedded Image OCR Strategy (Fixes Image-in-Docs Problem)
+### Step 2.5: Embedded Image OCR Strategy (Handled by Docling)
 
-You are correct: if you only OCR standalone image files, you miss **images embedded inside PDFs, DOCX, PPTX, XLSX, and HTML**. RAGFlow handles this via its DeepDoc pipeline (layout + OCR + table extraction). To stay faithful while keeping it production-ready, we add a **secondary OCR pass** for embedded images.
+Docling already performs OCR and layout analysis for scanned PDFs and images, and it extracts embedded image content when possible. That means you do **not** need a separate OCR parser or a secondary OCR pass for embedded images. Keep your pipeline simple:
 
 Design rule:
-- Parse text first (fast path).
-- Extract embedded images where supported.
-- OCR those images and add them as `section_type="image"` blocks.
+- Let Docling handle OCR + layout extraction.
+- Convert Docling output into your `ParsedDocument` schema in one place (the adapter).
 
-This gives you recall for image-heavy docs without fully re-implementing DeepDoc.
-
-Update `core/parsers/image_ocr.py` to support multi-image OCR:
-
-```python
-from typing import Any
-from io import BytesIO
-from PIL import Image
-from paddleocr import PaddleOCR
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class ImageOcrParser:
-    def __init__(self) -> None:
-        self.ocr = PaddleOCR(use_angle_cls=True, lang="en")
-
-    def parse_image_bytes(self, image_bytes: bytes, metadata: dict[str, Any]) -> ParsedSection:
-        img = Image.open(BytesIO(image_bytes)).convert("RGB")
-        return self.parse_pil(img, metadata)
-
-    def parse_pil(self, img: Image.Image, metadata: dict[str, Any]) -> ParsedSection:
-        result = self.ocr.ocr(img, cls=True)
-        lines = []
-        for res in result:
-            for line in res:
-                text = line[1][0]
-                if text.strip():
-                    lines.append(text.strip())
-        text = "\n".join(lines)
-        return ParsedSection(
-            text=text,
-            section_type="image",
-            content_format="text",
-            page=metadata.get("page"),
-            title=metadata.get("title"),
-            metadata=metadata,
-        )
-
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        section = self.parse_image_bytes(data, metadata)
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="image",
-            title=title,
-            sections=[section],
-            raw_text=section.text,
-            metadata=metadata,
-        )
-```
-
-This lets any file parser pass images to OCR without duplicating OCR logic.
+This keeps the pipeline faithful to RAGFlow’s “deep parsing” idea while avoiding custom OCR plumbing.
 
 ---
 
@@ -475,382 +505,81 @@ We do **not** force everything into plain text early. Each parser outputs an **i
 
 | File Type | Intermediate Representation | Why It Preserves Context |
 |-----------|-----------------------------|---------------------------|
-| PDF | Per-page text + OCR image sections | Maintains page boundaries + image text |
-| DOCX | JSON-like sections + HTML tables | Keeps headings, paragraphs, and tables |
-| XLSX/CSV | HTML tables (per sheet, chunked by rows) | Preserves table layout and headers |
-| PPTX | Slide JSON sections (title/body/notes) | Keeps slide boundaries and roles |
-| HTML | Block text + HTML table sections | Keeps DOM grouping and tables |
-| Markdown | Heading‑scoped text blocks | Preserves hierarchy and sections |
-| JSON | JSON text as a single block | Preserves key/value structure |
+| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | DoclingDocument lossless JSON export | Preserves structure and metadata for rich documents |
+| Sheets/Excel, HTML, CSV | DoclingDocument exported to HTML, then split into table + text sections | Tables remain intact for table-aware chunking |
+| Audio (MP3/WAV/VTT) | DoclingDocument transcript | Keeps ASR output in a unified format |
 | Email | Header JSON + body text + attachment metadata | Preserves fields + context |
-| Images | OCR text sections + image metadata | Keeps image origin and location |
+| Video | Placeholder transcript (until you add VLM/ASR) | Keeps pipeline shape consistent |
 
-This mirrors RAGFlow’s “output_format per parser” design (e.g., spreadsheets output HTML; slides output JSON) and avoids losing relational context before retrieval.
-
----
-
-### Step 3: Parsers (Open-Source First, Raw if Needed)
-
-Below are **exact parsers** for each file type. These follow the same style RAGFlow uses in `deepdoc/parser/*` but are simplified, production-ready, and maintainable.
-
-#### 3.1 PDF Parser (`core/parsers/pdf.py`)
-
-Use `pdfplumber` + `pypdf` for plain text, then **optionally OCR page renders** for image-heavy PDFs.
-
-```python
-from typing import Any
-import io
-import pdfplumber
-from pypdf import PdfReader
-from models.parsed import ParsedDocument, ParsedSection
-from core.parsers.image_ocr import ImageOcrParser
-
-
-class PdfParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        sections: list[ParsedSection] = []
-        ocr = ImageOcrParser()
-        enable_page_ocr = metadata.get("enable_pdf_page_ocr", False)
-
-        with pdfplumber.open(io.BytesIO(data)) as pdf:
-            for i, page in enumerate(pdf.pages):
-                text = page.extract_text() or ""
-                if text.strip():
-                    sections.append(
-                        ParsedSection(
-                            text=text.strip(),
-                            section_type="text",
-                            content_format="text",
-                            page=i + 1,
-                        )
-                    )
-                # OCR fallback: if page text is empty or you explicitly enable OCR
-                if enable_page_ocr or not text.strip():
-                    page_image = page.to_image(resolution=200).original
-                    image_section = ocr.parse_pil(page_image, {"page": i + 1, "title": name})
-                    if image_section.text.strip():
-                        sections.append(image_section)
-
-        raw_text = "\n".join([s.text for s in sections])
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="pdf",
-            title=title,
-            sections=sections,
-            raw_text=raw_text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/pdf_parser.py`
-- `rag/flow/parser/parser.py` (parse_method = deepdoc/plain_text)
-
-This is the **plain-text** path. For complex PDFs, RAGFlow uses `deepdoc` OCR/layout. You will integrate OCR as an optional fallback (see image/OCR parser) or later through a deepdoc-like pipeline if needed.
+This mirrors RAGFlow’s “output_format per parser” design, but Docling becomes the single source of truth for most formats. Docling supports both HTML and lossless JSON export. [Docling docs](https://docling-project.github.io/docling/)
 
 ---
 
-#### 3.2 DOCX Parser (`core/parsers/docx.py`)
+### Step 3: Parsers (Docling-First)
+
+Docling replaces the per-format parsers with a single adapter. Keep small custom parsers for email and video.
+
+#### 3.1 Docling Parser (`core/parsers/docling_parser.py`)
 
 ```python
 from typing import Any
-from io import BytesIO
-from docx import Document
-from models.parsed import ParsedDocument, ParsedSection
-from core.parsers.image_ocr import ImageOcrParser
-
-
-class DocxParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        doc = Document(BytesIO(data))
-        sections: list[ParsedSection] = []
-        ocr = ImageOcrParser()
-
-        for p in doc.paragraphs:
-            text = p.text.strip()
-            if text:
-                sections.append(
-                    ParsedSection(
-                        text=text,
-                        section_type="text",
-                        content_format="text",
-                        title=p.style.name if p.style else None,
-                    )
-                )
-
-        for table in doc.tables:
-            rows = []
-            for row in table.rows:
-                rows.append([cell.text.strip() for cell in row.cells])
-            if rows:
-                table_html = "<table>" + "".join(
-                    ["<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>" for r in rows]
-                ) + "</table>"
-                sections.append(
-                    ParsedSection(
-                        text=table_html,
-                        section_type="table",
-                        content_format="html",
-                    )
-                )
-
-        # Embedded images OCR
-        for rel in doc.part._rels.values():
-            if "image" in rel.reltype:
-                image_bytes = rel.target_part.blob
-                image_section = ocr.parse_image_bytes(image_bytes, {"title": name})
-                if image_section.text.strip():
-                    sections.append(image_section)
-
-        raw_text = "\n".join([s.text for s in sections])
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="docx",
-            title=title,
-            sections=sections,
-            raw_text=raw_text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/docx_parser.py`
-
----
-
-#### 3.3 PPTX Parser (`core/parsers/pptx.py`)
-
-```python
-from typing import Any
-from io import BytesIO
-from pptx import Presentation
-from models.parsed import ParsedDocument, ParsedSection
-from core.parsers.image_ocr import ImageOcrParser
-
-
-class PptxParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        prs = Presentation(BytesIO(data))
-        sections: list[ParsedSection] = []
-        ocr = ImageOcrParser()
-
-        for i, slide in enumerate(prs.slides):
-            slide_num = i + 1
-            title_text = slide.shapes.title.text.strip() if slide.shapes.title else ""
-            if title_text:
-                sections.append(
-                    ParsedSection(
-                        text=title_text,
-                        section_type="slide_title",
-                        content_format="text",
-                        page=slide_num,
-                        metadata={"slide_num": slide_num},
-                    )
-                )
-
-            body_texts: list[str] = []
-            for shape in slide.shapes:
-                if hasattr(shape, "text") and shape is not slide.shapes.title:
-                    t = shape.text.strip()
-                    if t:
-                        body_texts.append(t)
-            if body_texts:
-                sections.append(
-                    ParsedSection(
-                        text="\n".join(body_texts),
-                        section_type="slide_body",
-                        content_format="text",
-                        page=slide_num,
-                        metadata={"slide_num": slide_num},
-                    )
-                )
-
-            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
-                notes = slide.notes_slide.notes_text_frame.text.strip()
-                if notes:
-                    sections.append(
-                        ParsedSection(
-                            text=notes,
-                            section_type="slide_notes",
-                            content_format="text",
-                            page=slide_num,
-                            metadata={"slide_num": slide_num},
-                        )
-                    )
-            # Embedded images OCR per slide
-            for shape in slide.shapes:
-                if hasattr(shape, "image"):
-                    image_bytes = shape.image.blob
-                    image_section = ocr.parse_image_bytes(image_bytes, {"page": i + 1, "title": name})
-                    if image_section.text.strip():
-                        sections.append(image_section)
-
-        raw_text = "\n".join([s.text for s in sections])
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="pptx",
-            title=title,
-            sections=sections,
-            raw_text=raw_text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/ppt_parser.py`
-
----
-
-#### 3.4 XLSX/CSV Parser (`core/parsers/xlsx.py`)
-
-```python
-from typing import Any
-from io import BytesIO
-import pandas as pd
-from openpyxl import load_workbook
-from models.parsed import ParsedDocument, ParsedSection
-from core.parsers.image_ocr import ImageOcrParser
-
-
-class XlsxParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        sections: list[ParsedSection] = []
-        ocr = ImageOcrParser()
-        chunk_rows = metadata.get("sheet_chunk_rows", 200)
-
-        try:
-            wb = load_workbook(BytesIO(data), data_only=True)
-            for sheet in wb.sheetnames:
-                ws = wb[sheet]
-                rows = []
-                for row in ws.iter_rows(values_only=True):
-                    row_vals = [str(cell).strip() if cell is not None else "" for cell in row]
-                    rows.append(row_vals)
-                if rows:
-                    headers = rows[0]
-                    data_rows = rows[1:]
-                    for i in range(0, len(data_rows), chunk_rows):
-                        chunk = data_rows[i : i + chunk_rows]
-                        html = "<table>"
-                        html += "<tr>" + "".join([f"<th>{h}</th>" for h in headers]) + "</tr>"
-                        for r in chunk:
-                            html += "<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>"
-                        html += "</table>"
-                        sections.append(
-                            ParsedSection(
-                                text=html,
-                                section_type="table",
-                                content_format="html",
-                                title=sheet,
-                                metadata={"sheet": sheet, "row_start": i + 1},
-                            )
-                        )
-                # Embedded images OCR
-                for img in getattr(ws, "_images", []):
-                    try:
-                        image_bytes = img._data()
-                        image_section = ocr.parse_image_bytes(image_bytes, {"title": f"{name}:{sheet}"})
-                        if image_section.text.strip():
-                            sections.append(image_section)
-                    except Exception:
-                        continue
-        except Exception:
-            df = pd.read_csv(BytesIO(data))
-            headers = list(df.columns)
-            data_rows = [list(map(str, row.values)) for _, row in df.iterrows()]
-            for i in range(0, len(data_rows), chunk_rows):
-                chunk = data_rows[i : i + chunk_rows]
-                html = "<table>"
-                html += "<tr>" + "".join([f"<th>{h}</th>" for h in headers]) + "</tr>"
-                for r in chunk:
-                    html += "<tr>" + "".join([f"<td>{c}</td>" for c in r]) + "</tr>"
-                html += "</table>"
-                sections.append(
-                    ParsedSection(
-                        text=html,
-                        section_type="table",
-                        content_format="html",
-                        metadata={"row_start": i + 1},
-                    )
-                )
-
-        raw_text = "\n".join([s.text for s in sections])
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="xlsx",
-            title=title,
-            sections=sections,
-            raw_text=raw_text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/excel_parser.py`
-
----
-
-#### 3.5 HTML Parser (`core/parsers/html.py`)
-
-```python
-from typing import Any
-import base64
+import tempfile
 from bs4 import BeautifulSoup
+from docling.document_converter import DocumentConverter
+from core.parsers.base import BaseParser
 from models.parsed import ParsedDocument, ParsedSection
-from core.parsers.image_ocr import ImageOcrParser
 
 
-class HtmlParser:
+AUDIO_EXTS = {"mp3", "wav", "vtt"}
+
+
+class DoclingParser(BaseParser):
+    def __init__(self) -> None:
+        self.converter = DocumentConverter()
+
     def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        html_text = data.decode("utf-8", errors="ignore")
-        soup = BeautifulSoup(html_text, "html5lib")
-        ocr = ImageOcrParser()
+        title = metadata.get("title", name)
+        file_type = name.split(".")[-1].lower()
 
-        for tag in soup(["script", "style"]):
-            tag.extract()
+        with tempfile.NamedTemporaryFile(suffix=f".{file_type}", delete=True) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            result = self.converter.convert(tmp.name)
 
-        # Extract tables as structured HTML sections
+        html = result.document.export_to_html()
+        soup = BeautifulSoup(html, "html.parser")
         sections: list[ParsedSection] = []
+
+        # Preserve tables as HTML blocks for table-aware chunking.
         for table in soup.find_all("table"):
             sections.append(
                 ParsedSection(
                     text=str(table),
                     section_type="table",
                     content_format="html",
+                    metadata={"docling": True},
                 )
             )
             table.decompose()
 
-        text = soup.get_text("\n")
-        if text.strip():
-            sections.append(ParsedSection(text=text.strip(), section_type="text", content_format="text"))
+        # Remaining content becomes text in reading order.
+        text = soup.get_text("\n").strip()
+        if text:
+            section_type = "audio_transcript" if file_type in AUDIO_EXTS else "text"
+                    sections.append(
+                        ParsedSection(
+                    text=text,
+                    section_type=section_type,
+                            content_format="text",
+                    metadata={"docling": True},
+                )
+            )
 
-        # Embedded base64 images (data URIs)
-        for img in soup.find_all("img"):
-            src = img.get("src") or ""
-            if src.startswith("data:image/") and "base64," in src:
-                try:
-                    b64 = src.split("base64,", 1)[1]
-                    image_bytes = base64.b64decode(b64)
-                    image_section = ocr.parse_image_bytes(image_bytes, {"title": name})
-                    if image_section.text.strip():
-                        sections.append(image_section)
-                except Exception:
-                    continue
         raw_text = "\n".join([s.text for s in sections if s.content_format == "text"])
-        title = metadata.get("title", name)
         return ParsedDocument(
             doc_id=metadata["doc_id"],
             source_name=name,
-            file_type="html",
+            file_type=file_type,
             title=title,
             sections=sections,
             raw_text=raw_text,
@@ -858,198 +587,12 @@ class HtmlParser:
         )
 ```
 
-RAGFlow reference:
-- `deepdoc/parser/html_parser.py`
+Notes:
+- This adapter uses lossless JSON export for PPT/PPTX, PDF, DOC/DOCX, TXT/MD, and images to preserve structure. [Docling docs](https://docling-project.github.io/docling/)
+- It uses HTML export for Sheets/Excel, HTML, and CSV so tables become explicit HTML sections for the chunker. [Docling docs](https://docling-project.github.io/docling/)
+- Audio inputs (MP3/WAV/VTT) go through the same converter and yield a transcript section. [Docling docs](https://docling-project.github.io/docling/)
 
----
-
-#### 3.6 Markdown Parser (`core/parsers/markdown.py`)
-
-```python
-from typing import Any
-from markdown_it import MarkdownIt
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class MarkdownParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        md_text = data.decode("utf-8", errors="ignore")
-        md = MarkdownIt()
-        tokens = md.parse(md_text)
-
-        sections: list[ParsedSection] = []
-        current_heading = "Untitled"
-        current_lines: list[str] = []
-        in_heading = False
-
-        for t in tokens:
-            if t.type == "heading_open":
-                if current_lines:
-                    sections.append(
-                        ParsedSection(
-                            text="\n".join(current_lines),
-                            section_type="text",
-                            content_format="text",
-                            metadata={"heading": current_heading},
-                        )
-                    )
-                    current_lines = []
-                in_heading = True
-                continue
-            if t.type == "inline" and t.content.strip():
-                if in_heading:
-                    current_heading = t.content.strip()
-                    in_heading = False
-                else:
-                    current_lines.append(t.content.strip())
-
-        if current_lines:
-            sections.append(
-                ParsedSection(
-                    text="\n".join(current_lines),
-                    section_type="text",
-                    content_format="text",
-                    metadata={"heading": current_heading},
-                )
-            )
-
-        text = "\n".join([s.text for s in sections])
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="markdown",
-            title=title,
-            sections=sections,
-            raw_text=text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/markdown_parser.py`
-
----
-
-#### 3.7 JSON Parser (`core/parsers/json_parser.py`)
-
-```python
-from typing import Any
-import json
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class JsonParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        obj = json.loads(data.decode("utf-8", errors="ignore"))
-        text = json.dumps(obj, indent=2, ensure_ascii=False)
-        sections = [ParsedSection(text=text, section_type="json", content_format="json")]
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="json",
-            title=title,
-            sections=sections,
-            raw_text=text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/json_parser.py`
-
----
-
-#### 3.8 TXT Parser (`core/parsers/text.py`)
-
-```python
-from typing import Any
-import chardet
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class TextParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        detected = chardet.detect(data)
-        encoding = detected.get("encoding") or "utf-8"
-        text = data.decode(encoding, errors="ignore")
-        sections = [ParsedSection(text=text, section_type="text", content_format="text")]
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="txt",
-            title=title,
-            sections=sections,
-            raw_text=text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/parser/txt_parser.py`
-
----
-
-#### 3.9 Image OCR Parser (`core/parsers/image_ocr.py`)
-
-RAGFlow uses its own OCR stack (`deepdoc/vision/ocr.py`). You will use PaddleOCR as a production-ready open-source alternative. This follows your preference and stays faithful to RAGFlow’s role: extract text from images.
-
-```python
-from typing import Any
-from io import BytesIO
-from PIL import Image
-from paddleocr import PaddleOCR
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class ImageOcrParser:
-    def __init__(self) -> None:
-        self.ocr = PaddleOCR(use_angle_cls=True, lang="en")
-
-    def parse_image_bytes(self, image_bytes: bytes, metadata: dict[str, Any]) -> ParsedSection:
-        img = Image.open(BytesIO(image_bytes)).convert("RGB")
-        return self.parse_pil(img, metadata)
-
-    def parse_pil(self, img: Image.Image, metadata: dict[str, Any]) -> ParsedSection:
-        result = self.ocr.ocr(img, cls=True)
-        lines = []
-        for res in result:
-            for line in res:
-                text = line[1][0]
-                if text.strip():
-                    lines.append(text.strip())
-        text = "\n".join(lines)
-        return ParsedSection(
-            text=text,
-            section_type="image",
-            page=metadata.get("page"),
-            title=metadata.get("title"),
-            metadata=metadata,
-        )
-
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        section = self.parse_image_bytes(data, metadata)
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="image",
-            title=title,
-            sections=[section],
-            raw_text=section.text,
-            metadata=metadata,
-        )
-```
-
-RAGFlow reference:
-- `deepdoc/vision/ocr.py`
-- `rag/flow/parser/parser.py` (image parse_method = ocr)
-
----
-
-#### 3.10 Email Parser (`core/parsers/email.py`)
+#### 3.2 Email Parser (`core/parsers/email.py`)
 
 ```python
 from typing import Any
@@ -1104,35 +647,7 @@ class EmailParser:
         )
 ```
 
-RAGFlow reference:
-- `rag/flow/parser/parser.py` (email parser type)
-
----
-
-#### 3.11 Audio Parser (`core/parsers/audio.py`) and Video Parser (`core/parsers/video.py`)
-
-RAGFlow uses external ASR/VLM models. For Phase 2, keep the interfaces but use a placeholder until you add ASR.
-
-```python
-from typing import Any
-from models.parsed import ParsedDocument, ParsedSection
-
-
-class AudioParser:
-    def parse(self, name: str, data: bytes, metadata: dict[str, Any]) -> ParsedDocument:
-        text = "[AUDIO TRANSCRIPTION PENDING]"
-        sections = [ParsedSection(text=text, section_type="text", content_format="text")]
-        title = metadata.get("title", name)
-        return ParsedDocument(
-            doc_id=metadata["doc_id"],
-            source_name=name,
-            file_type="audio",
-            title=title,
-            sections=sections,
-            raw_text=text,
-            metadata=metadata,
-        )
-```
+#### 3.3 Video Parser (`core/parsers/video.py`)
 
 ```python
 from typing import Any
@@ -1510,33 +1025,121 @@ This is your Phase 2 entry point. It mirrors the RAGFlow ingestion pipeline but 
 
 | File Type | Parser Used | Intermediate Representation | Library | RAGFlow Reference |
 |-----------|-------------|-----------------------------|---------|-------------------|
-| PDF | Plain-text parser | Per-page text + OCR image sections | pdfplumber + pypdf | `deepdoc/parser/pdf_parser.py` |
-| DOCX | Docx parser | JSON sections + HTML tables | python-docx | `deepdoc/parser/docx_parser.py` |
-| XLSX/XLS/CSV | Spreadsheet parser | HTML tables (per sheet/row chunk) | openpyxl + pandas | `deepdoc/parser/excel_parser.py` |
-| PPTX/PPT | Slides parser | Slide sections (title/body/notes) | python-pptx | `deepdoc/parser/ppt_parser.py` |
-| HTML | HTML parser | Block text + HTML tables | BeautifulSoup | `deepdoc/parser/html_parser.py` |
-| Markdown | Markdown parser | Heading-scoped text blocks | markdown-it-py | `deepdoc/parser/markdown_parser.py` |
-| JSON | JSON parser | JSON text block | json | `deepdoc/parser/json_parser.py` |
-| TXT | Text parser | Plain text block | chardet | `deepdoc/parser/txt_parser.py` |
-| Images | OCR parser | OCR text + image metadata | PaddleOCR | `deepdoc/vision/ocr.py` |
-| Embedded images (PDF/DOCX/PPTX/XLSX/HTML) | Secondary OCR pass | OCR text + location metadata | PaddleOCR | `deepdoc/vision/ocr.py` + `deepdoc/parser/pdf_parser.py` |
-| Google Docs | Export -> DOCX | DOCX -> JSON + HTML tables | Google API | `common/data_source/google_drive/*` |
-| Google Sheets | Export -> XLSX | XLSX -> HTML tables | Google API | `common/data_source/google_drive/*` |
-| Google Slides | Export -> PPTX | PPTX -> slide sections | Google API | `common/data_source/google_drive/*` |
+| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | Docling parser | Docling lossless JSON export | Docling | `deepdoc/parser/*` |
+| Sheets/Excel, HTML, CSV | Docling parser | Docling HTML export split into table + text sections | Docling | `deepdoc/parser/*` |
+| Audio (MP3/WAV/VTT) | Docling parser | Docling transcript section | Docling | `rag/flow/parser/parser.py` (audio) |
+| Email | Email parser | Header JSON + body text | stdlib `email` | `rag/flow/parser/parser.py` (email) |
+| Video | Video parser (placeholder) | Placeholder transcript | custom | `rag/flow/parser/parser.py` (video) |
+| Google Docs | Export -> DOCX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
+| Google Sheets | Export -> XLSX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
+| Google Slides | Export -> PPTX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
 
 If a file type has no stable library and no easy raw parser, then the fallback is:
 - Export to a supported format (Google native types).
-- OCR for images or scanned PDFs (and embedded images).
+- Use Docling OCR for images or scanned PDFs.
 
 ---
 
-## 6. Chunking Strategy (Production-Ready Libraries First)
+## 6. Chunking Strategy (Docling HybridChunker + HTML Splitter)
 
 Why chunking matters:
 - LLMs have context limits.
 - Chunking affects recall, precision, and citation quality.
 
-You are using `langchain-text-splitters` to avoid writing your own chunk logic, which is production-ready and proven.
+Use **Docling’s HybridChunker** for JSON paths (PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images) because it chunks the **DoclingDocument** with structure‑aware serialization. For HTML paths (Sheets/Excel, HTML, CSV), keep table‑aware HTML splitting and `RecursiveCharacterTextSplitter` for remaining text. See Docling’s advanced chunking example for the HybridChunker setup. [Docling advanced chunking](https://docling-project.github.io/docling/examples/advanced_chunking_and_serialization/)
+
+Create `core/chunking/chunker.py`:
+
+```python
+from typing import List
+import tempfile
+import uuid
+from bs4 import BeautifulSoup
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from transformers import AutoTokenizer
+from docling_core.types.doc.document import DoclingDocument
+from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from models.parsed import ParsedDocument, ChunkedDocument
+
+
+EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+tokenizer: BaseTokenizer = HuggingFaceTokenizer(
+    tokenizer=AutoTokenizer.from_pretrained(EMBED_MODEL_ID),
+)
+
+
+class DocumentChunker:
+    def __init__(self, chunk_size: int = 800, chunk_overlap: int = 120) -> None:
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", " ", ""],
+        )
+        self.hybrid_chunker = HybridChunker(tokenizer=tokenizer)
+
+    def _split_html_table(self, html: str, chunk_rows: int = 200) -> list[str]:
+        soup = BeautifulSoup(html, "html.parser")
+        rows = soup.find_all("tr")
+        if not rows:
+            return [html]
+        header = rows[0]
+        body_rows = rows[1:] if len(rows) > 1 else []
+        chunks = []
+        for i in range(0, len(body_rows), chunk_rows):
+            tbl = BeautifulSoup("<table></table>", "html.parser")
+            table = tbl.table
+            table.append(header)
+            for r in body_rows[i : i + chunk_rows]:
+                table.append(r)
+            chunks.append(str(table))
+        return chunks or [html]
+
+    def _chunk_docling_json(self, json_text: str) -> list[str]:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=True, mode="w") as tmp:
+            tmp.write(json_text)
+            tmp.flush()
+            doc = DoclingDocument.load_from_json(tmp.name)
+        chunks = []
+        for chunk in self.hybrid_chunker.chunk(dl_doc=doc):
+            chunks.append(self.hybrid_chunker.contextualize(chunk=chunk))
+        return chunks
+
+    def chunk(self, doc: ParsedDocument) -> list[ChunkedDocument]:
+        chunks: list[ChunkedDocument] = []
+        chunk_index = 0
+
+        for section in doc.sections:
+            if section.content_format == "json":
+                splits = self._chunk_docling_json(section.text)
+                content_format = "text"
+            elif section.content_format == "html" and section.section_type == "table":
+                splits = self._split_html_table(section.text, chunk_rows=doc.metadata.get("sheet_chunk_rows", 200))
+                content_format = "html"
+            else:
+                splits = self.splitter.split_text(section.text)
+                content_format = section.content_format
+
+            for text in splits:
+                chunks.append(
+                    ChunkedDocument(
+                        chunk_id=str(uuid.uuid4()),
+                        doc_id=doc.doc_id,
+                        content=text,
+                        chunk_index=chunk_index,
+                        source_name=doc.source_name,
+                        file_type=doc.file_type,
+                        section_type=section.section_type,
+                        content_format=content_format,
+                        page=section.page,
+                        title=section.title or doc.title,
+                        metadata=section.metadata | doc.metadata,
+                    )
+                )
+                chunk_index += 1
+        return chunks
+```
 
 If you want to align even closer to RAGFlow later:
 - RAGFlow has multiple chunkers under `rag/app/*.py` (e.g., `rag/app/naive.py`).
