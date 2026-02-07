@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class ParsedSection(BaseModel):
     text: str
     section_type: str = "text"  # text, table, image, metadata
+    content_format: str # text, json, html
     page: Optional[int] = None
     title: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)

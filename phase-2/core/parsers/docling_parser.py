@@ -2,6 +2,7 @@
 
 import tempfile
 from bs4 import BeautifulSoup
+from typing import Any
 from docling.document_converter import DocumentConverter
 from core.parsers.base import BaseParser
 from models.parsed import ParsedDocument, ParsedSection
@@ -26,12 +27,14 @@ class DoclingParser(BaseParser):
         html = result.document.export_to_html()
         soup = BeautifulSoup(html, 'html.parser')
         sections: list[ParsedSection] = []
-
+        
+        #Very crude level for now
         for table in soup.find_all("table"):
             sections.append(
                 ParsedSection(
                     text=str(table),
                     section_type='table',
+                    content_format="html",
                     metadata={"docling": True}
                 )
             )
@@ -46,11 +49,12 @@ class DoclingParser(BaseParser):
                 ParsedSection(
                     text=text,
                     section_type=section_type,
+                    content_format="text",
                     metadata={"docling": True}
                 )
             )
         
-        raw_text = "\n".join([s.text for s in sections if s.section_type == 'text'])
+        raw_text = "\n".join([s.text for s in sections if s.content_format == 'text'])
 
         return ParsedDocument(
             doc_id=metadata['doc_id'],
