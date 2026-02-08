@@ -262,6 +262,7 @@ Create `core/parsers/base.py`:
 
 ```python
 from abc import ABC, abstractmethod
+import json
 from typing import Any
 from models.parsed import ParsedDocument
 
@@ -531,6 +532,12 @@ from models.parsed import ParsedDocument, ParsedSection
 
 
 AUDIO_EXTS = {"mp3", "wav", "vtt"}
+HTML_EXPORT_EXTS = {"xls", "xlsx", "csv", "html", "htm"}
+JSON_EXPORT_EXTS = {
+    "pdf", "doc", "docx", "ppt", "pptx",
+    "txt", "md", "markdown", "mdx",
+    "jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp",
+}
 
 
 class DoclingParser(BaseParser):
@@ -546,31 +553,43 @@ class DoclingParser(BaseParser):
             tmp.flush()
             result = self.converter.convert(tmp.name)
 
-        html = result.document.export_to_html()
-        soup = BeautifulSoup(html, "html.parser")
         sections: list[ParsedSection] = []
 
-        # Preserve tables as HTML blocks for table-aware chunking.
-        for table in soup.find_all("table"):
+        if file_type in HTML_EXPORT_EXTS or file_type in AUDIO_EXTS:
+            html = result.document.export_to_html()
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Preserve tables as HTML blocks for table-aware chunking.
+            for table in soup.find_all("table"):
+                sections.append(
+                    ParsedSection(
+                        text=str(table),
+                        section_type="table",
+                        content_format="html",
+                        metadata={"docling": True},
+                    )
+                )
+                table.decompose()
+
+            # Remaining content becomes text in reading order.
+            text = soup.get_text("\n").strip()
+            if text:
+                section_type = "audio_transcript" if file_type in AUDIO_EXTS else "text"
+                sections.append(
+                    ParsedSection(
+                        text=text,
+                        section_type=section_type,
+                        content_format="text",
+                        metadata={"docling": True},
+                    )
+                )
+        else:
+            json_text = json.dumps(result.document.export_to_dict())
             sections.append(
                 ParsedSection(
-                    text=str(table),
-                    section_type="table",
-                    content_format="html",
-                    metadata={"docling": True},
-                )
-            )
-            table.decompose()
-
-        # Remaining content becomes text in reading order.
-        text = soup.get_text("\n").strip()
-        if text:
-            section_type = "audio_transcript" if file_type in AUDIO_EXTS else "text"
-                    sections.append(
-                        ParsedSection(
-                    text=text,
-                    section_type=section_type,
-                            content_format="text",
+                    text=json_text,
+                    section_type="docling",
+                    content_format="json",
                     metadata={"docling": True},
                 )
             )
@@ -876,6 +895,8 @@ class DocumentChunker:
 ```
 
 This is equivalent to RAGFlow’s chunking stage, but you rely on a production-ready splitter rather than custom token logic.
+JSON sections are deliberately kept as a single chunk (`content_format == "json"`) so you preserve the full structured payload
+for downstream retrieval and rendering, instead of fragmenting keys/values across multiple chunks.
 
 ---
 
@@ -1172,8 +1193,10 @@ Yes, we build a FastAPI app in Phase 2. This gives you a real ingestion endpoint
 Create `app/main.py`:
 
 ```python
+import json
 from fastapi import FastAPI, UploadFile, File
 from core.ingestion.ingest import IngestionService
+from core.ingestion.sources.gdrive import GoogleDriveIngestor
 
 
 app = FastAPI(title="Phase 2 Parser")
@@ -1190,9 +1213,19 @@ async def ingest(file: UploadFile = File(...)):
     data = await file.read()
     result = await ingestion.ingest(file.filename, data, {"source": "local", "mime_type": file.content_type})
     return result
+
+
+@app.post("/ingest/gdrive/{folder_id}")
+async def ingest_gdrive(folder_id: str):
+    # service_account.json is the Google service account credentials file
+    with open("service_account.json", "r", encoding="utf-8") as f:
+        service_account_json = json.load(f)
+    gdrive = GoogleDriveIngestor(service_account_json, ingestion)
+    return await gdrive.ingest_folder(folder_id)
 ```
 
 This mirrors RAGFlow’s ingestion endpoint patterns but keeps the pipeline small and explicit.
+The `/ingest/gdrive/{folder_id}` endpoint lets you trigger Google Drive ingestion directly for testing.
 
 ---
 

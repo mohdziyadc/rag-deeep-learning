@@ -32,6 +32,7 @@ class ChunkedDocument(BaseModel):
     source_name: str
     file_type: str
     section_type: str
+    content_format: str
     page: Optional[int] = None
     title: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
