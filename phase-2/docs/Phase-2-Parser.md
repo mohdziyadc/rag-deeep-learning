@@ -1,6 +1,7 @@
 # Phase 2: Parsing, Normalizing, Chunking, and Storage (RAGFlow-Faithful)
 
 ## Goal
+
 Build a production-minded ingestion pipeline that mirrors how RAGFlow parses diverse files (PDF, DOCX, XLSX/CSV, PPTX, HTML/MD/JSON/TXT, images with OCR, audio/video transcription, and Google Docs/Sheets/Slides). You will:
 
 - Convert many file types into a unified document model.
@@ -13,6 +14,7 @@ No toy snippets, no pseudo-code. This guide gives the exact code you should impl
 ---
 
 ## Table of Contents
+
 1. The Big Picture
 2. How RAGFlow Does It (Where To Look)
 3. Phase 2 Architecture
@@ -107,6 +109,7 @@ rag-deep-learning/
 ```
 
 This mirrors RAGFlow’s separation:
+
 - **Parser** (type-aware logic)
 - **Normalizer** (unified structure)
 - **Chunker** (splitting rules)
@@ -152,6 +155,7 @@ dependencies = [
 ```
 
 Why this matches RAGFlow:
+
 - RAGFlow uses **deepdoc** for PDF (layout/OCR) and multiple format parsers. Docling provides the same role as a **single, unified parser**.
 - Google APIs are still required only for Google-native formats (Docs/Sheets/Slides), which need export before parsing.
 
@@ -207,6 +211,7 @@ class ChunkedDocument:
 ```
 
 Why this matters:
+
 - RAGFlow outputs **structured JSON** per parser and then uses a separate chunker. You are doing the same: parse -> normalize -> chunk.
 
 ---
@@ -433,6 +438,7 @@ class ParserRegistry:
 ```
 
 Why this matches RAGFlow:
+
 - The registry mirrors `ParserParam.setups` and the dispatch in `rag/flow/parser/parser.py`.
 - You can extend by adding new mappings just like RAGFlow supports more suffixes.
 
@@ -493,6 +499,7 @@ This gives you the minimal relational layer you asked for: **files and documents
 Docling already performs OCR and layout analysis for scanned PDFs and images, and it extracts embedded image content when possible. That means you do **not** need a separate OCR parser or a secondary OCR pass for embedded images. Keep your pipeline simple:
 
 Design rule:
+
 - Let Docling handle OCR + layout extraction.
 - Convert Docling output into your `ParsedDocument` schema in one place (the adapter).
 
@@ -504,13 +511,13 @@ This keeps the pipeline faithful to RAGFlow’s “deep parsing” idea while av
 
 We do **not** force everything into plain text early. Each parser outputs an **intermediate representation** that preserves structure and relationships, then chunking is applied in a type-aware way.
 
-| File Type | Intermediate Representation | Why It Preserves Context |
-|-----------|-----------------------------|---------------------------|
-| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | DoclingDocument lossless JSON export | Preserves structure and metadata for rich documents |
-| Sheets/Excel, HTML, CSV | DoclingDocument exported to HTML, then split into table + text sections | Tables remain intact for table-aware chunking |
-| Audio (MP3/WAV/VTT) | DoclingDocument transcript | Keeps ASR output in a unified format |
-| Email | Header JSON + body text + attachment metadata | Preserves fields + context |
-| Video | Placeholder transcript (until you add VLM/ASR) | Keeps pipeline shape consistent |
+| File Type                               | Intermediate Representation                                             | Why It Preserves Context                            |
+| --------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
+| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | DoclingDocument lossless JSON export                                    | Preserves structure and metadata for rich documents |
+| Sheets/Excel, HTML, CSV                 | DoclingDocument exported to HTML, then split into table + text sections | Tables remain intact for table-aware chunking       |
+| Audio (MP3/WAV/VTT)                     | DoclingDocument transcript                                              | Keeps ASR output in a unified format                |
+| Email                                   | Header JSON + body text + attachment metadata                           | Preserves fields + context                          |
+| Video                                   | Placeholder transcript (until you add VLM/ASR)                          | Keeps pipeline shape consistent                     |
 
 This mirrors RAGFlow’s “output_format per parser” design, but Docling becomes the single source of truth for most formats. Docling supports both HTML and lossless JSON export. [Docling docs](https://docling-project.github.io/docling/)
 
@@ -607,6 +614,7 @@ class DoclingParser(BaseParser):
 ```
 
 Notes:
+
 - This adapter uses lossless JSON export for PPT/PPTX, PDF, DOC/DOCX, TXT/MD, and images to preserve structure. [Docling docs](https://docling-project.github.io/docling/)
 - It uses HTML export for Sheets/Excel, HTML, and CSV so tables become explicit HTML sections for the chunker. [Docling docs](https://docling-project.github.io/docling/)
 - Audio inputs (MP3/WAV/VTT) go through the same converter and yield a transcript section. [Docling docs](https://docling-project.github.io/docling/)
@@ -690,6 +698,7 @@ class VideoParser:
 ```
 
 RAGFlow reference:
+
 - `rag/flow/parser/parser.py` (audio/video need LLM model)
 
 ---
@@ -783,11 +792,13 @@ class GoogleDriveIngestor:
 ```
 
 How this aligns with RAGFlow:
+
 - RAGFlow exports Docs/Sheets/Slides to Office formats and parses them normally.
 - The export targets above match RAGFlow’s logic in `common/data_source/google_drive/doc_conversion.py`.
 - You ingest the exported bytes through the same parser registry and storage pipeline.
 
 RAGFlow reference:
+
 - `common/data_source/google_drive/doc_conversion.py`
 - `common/data_source/google_drive/section_extraction.py`
 
@@ -819,6 +830,7 @@ class DocumentNormalizer:
 ```
 
 Why this matters:
+
 - RAGFlow output is structured but still normalized in later pipeline stages.
 - Normalization is where you drop empty blocks, unify encodings, and keep metadata.
 
@@ -964,6 +976,7 @@ class ParsedIndex:
 ```
 
 Why this matches RAGFlow:
+
 - RAGFlow’s `common/doc_store/es_conn_base.py` uses a shared index schema, and stores content + metadata in ES.
 - You are creating a dedicated index to keep parsed data separated from Phase 1.
 
@@ -1044,18 +1057,19 @@ This is your Phase 2 entry point. It mirrors the RAGFlow ingestion pipeline but 
 
 ## 5. File-Type Coverage Matrix and Parser Choices
 
-| File Type | Parser Used | Intermediate Representation | Library | RAGFlow Reference |
-|-----------|-------------|-----------------------------|---------|-------------------|
-| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | Docling parser | Docling lossless JSON export | Docling | `deepdoc/parser/*` |
-| Sheets/Excel, HTML, CSV | Docling parser | Docling HTML export split into table + text sections | Docling | `deepdoc/parser/*` |
-| Audio (MP3/WAV/VTT) | Docling parser | Docling transcript section | Docling | `rag/flow/parser/parser.py` (audio) |
-| Email | Email parser | Header JSON + body text | stdlib `email` | `rag/flow/parser/parser.py` (email) |
-| Video | Video parser (placeholder) | Placeholder transcript | custom | `rag/flow/parser/parser.py` (video) |
-| Google Docs | Export -> DOCX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
-| Google Sheets | Export -> XLSX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
-| Google Slides | Export -> PPTX -> Docling | DoclingDocument | Google API + Docling | `common/data_source/google_drive/*` |
+| File Type                               | Parser Used                | Intermediate Representation                          | Library              | RAGFlow Reference                   |
+| --------------------------------------- | -------------------------- | ---------------------------------------------------- | -------------------- | ----------------------------------- |
+| PPT/PPTX, PDF, DOC/DOCX, TXT/MD, Images | Docling parser             | Docling lossless JSON export                         | Docling              | `deepdoc/parser/*`                  |
+| Sheets/Excel, HTML, CSV                 | Docling parser             | Docling HTML export split into table + text sections | Docling              | `deepdoc/parser/*`                  |
+| Audio (MP3/WAV/VTT)                     | Docling parser             | Docling transcript section                           | Docling              | `rag/flow/parser/parser.py` (audio) |
+| Email                                   | Email parser               | Header JSON + body text                              | stdlib `email`       | `rag/flow/parser/parser.py` (email) |
+| Video                                   | Video parser (placeholder) | Placeholder transcript                               | custom               | `rag/flow/parser/parser.py` (video) |
+| Google Docs                             | Export -> DOCX -> Docling  | DoclingDocument                                      | Google API + Docling | `common/data_source/google_drive/*` |
+| Google Sheets                           | Export -> XLSX -> Docling  | DoclingDocument                                      | Google API + Docling | `common/data_source/google_drive/*` |
+| Google Slides                           | Export -> PPTX -> Docling  | DoclingDocument                                      | Google API + Docling | `common/data_source/google_drive/*` |
 
 If a file type has no stable library and no easy raw parser, then the fallback is:
+
 - Export to a supported format (Google native types).
 - Use Docling OCR for images or scanned PDFs.
 
@@ -1064,6 +1078,7 @@ If a file type has no stable library and no easy raw parser, then the fallback i
 ## 6. Chunking Strategy (Docling HybridChunker + HTML Splitter)
 
 Why chunking matters:
+
 - LLMs have context limits.
 - Chunking affects recall, precision, and citation quality.
 
@@ -1163,6 +1178,7 @@ class DocumentChunker:
 ```
 
 If you want to align even closer to RAGFlow later:
+
 - RAGFlow has multiple chunkers under `rag/app/*.py` (e.g., `rag/app/naive.py`).
 - For PDFs, RAGFlow can chunk by page or layout sections when using DeepDoc.
 
@@ -1171,11 +1187,13 @@ If you want to align even closer to RAGFlow later:
 ## 7. Storage Design (Postgres + New Index)
 
 You are using **Postgres for metadata** and a **new ES index for chunks**. That gives you:
+
 - Clear separation from Phase 1 retrieval index.
 - A relational source of truth for file/document state.
 - A clean layer to test parsing and chunking quality without affecting search.
 
 RAGFlow stores parsed chunks in a doc store abstraction and keeps file/document mapping in SQL:
+
 - `common/doc_store/es_conn_base.py`
 - `api/db/services/file2document_service.py`
 
@@ -1186,6 +1204,7 @@ You now mirror that split: Postgres = metadata, ES = chunk content.
 ## 8. FastAPI App (Ingestion API)
 
 Yes, we build a FastAPI app in Phase 2. This gives you a real ingestion endpoint that:
+
 - Accepts file uploads (local)
 - Triggers the parsing + chunking + storage pipeline
 - Writes metadata into Postgres and chunks into ES
@@ -1258,6 +1277,7 @@ For each file type:
 - Validate metadata fields (doc_id, file_type, page)
 
 Suggested test set:
+
 - PDF (both text-only and scanned)
 - DOCX with tables
 - XLSX with multiple sheets
@@ -1281,4 +1301,3 @@ After implementing this guide, you will know:
 5. How parsed chunks are stored in a separate ES index.
 
 This completes Phase 2 and prepares you for Phase 3 (generation with citations).
-

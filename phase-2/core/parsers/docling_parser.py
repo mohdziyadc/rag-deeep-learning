@@ -14,6 +14,7 @@ JSON_EXPORT_EXTS = {
     "pdf", "doc", "docx", "ppt", "pptx",
     "txt", "md", "markdown", "mdx",
     "jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp",
+    "json"
 }
 
 class DoclingParser(BaseParser):

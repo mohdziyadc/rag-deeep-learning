@@ -1,4 +1,5 @@
 from elasticsearch import AsyncElasticsearch
+import logging
 
 
 INDEX_MAP = {
@@ -36,12 +37,30 @@ INDEX_MAP = {
     }
 }
 
+ES_HOST = "http://localhost:9200"
+INDEX_NAME = "multi_parsed"
+
+logger = logging.getLogger(__name__)
+
 
 class ParsedIndex:
 
-    def __init__(self, es_host:str, index_name: str) -> None:
-        self.client = AsyncElasticsearch(hosts=[es_host])
+    def __init__(self, index_name: str) -> None:
+        self.client: AsyncElasticsearch | None = None
         self.indexname = index_name
+
+    async def connect(self) -> None: 
+        if self.client is None:
+            self.client = AsyncElasticsearch(
+                hosts=[ES_HOST],
+                request_timeout=30
+            )
+            logger.info(f'Connected to ES at {ES_HOST}')
+
+    async def close(self):
+        if self.client:
+            await self.client.close()
+            self.client = None
 
     async def create_index(self):
         index = await self.client.indices.exists(index=self.indexname)
@@ -57,4 +76,6 @@ class ParsedIndex:
         
         await self.client.bulk(operations=operations)
 
-    
+
+
+indexer = ParsedIndex(index_name=INDEX_NAME)

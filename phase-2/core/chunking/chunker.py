@@ -59,8 +59,8 @@ class DocumentChunker:
             chunks.append(contextualized_chunk)
         return chunks
 
-    def chunk(self, doc: ParsedDocument) -> list[ChunkedDocument]:
-        chunks: list[ChunkedDocument] = []
+    def chunk(self, doc: ParsedDocument) -> list[dict]:
+        chunks: list[dict] = []
         chunk_index = 0
 
 
@@ -89,7 +89,7 @@ class DocumentChunker:
                         page=section.page,
                         title=section.title or doc.title,
                         metadata=section.metadata or doc.metadata
-                    )
+                    ).model_dump()
                 )
                 chunk_index += 1
         return chunks

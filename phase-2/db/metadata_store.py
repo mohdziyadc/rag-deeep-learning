@@ -39,3 +39,6 @@ class MetadataStore:
         async with self.session_factory() as session:
             result = await session.execute(select(Document).order_by(Document.created_at.desc()))
             return list(result.scalars().all())
+
+DATABASE_URL="postgresql+asyncpg://raguser:ragpass@localhost:5432/ragdb"
+metadata_store = MetadataStore(db_url=DATABASE_URL)
