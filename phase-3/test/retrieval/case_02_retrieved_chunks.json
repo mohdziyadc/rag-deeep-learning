@@ -1,0 +1,16 @@
+[
+  {
+    "chunk_id": "ck_005",
+    "doc_id": "doc_pricing",
+    "title": "Pricing Sheet",
+    "content": "Enterprise plan starts at $6,000 per month for up to 50 users. Additional users are billed at $85 per user per month.",
+    "metadata": {"source": "pricing.xlsx", "sheet": "Plans"}
+  },
+  {
+    "chunk_id": "ck_006",
+    "doc_id": "doc_pricing",
+    "title": "Pricing Sheet",
+    "content": "Professional services: onboarding is a one-time fee of $12,000 and includes system configuration, SSO setup, and training.",
+    "metadata": {"source": "pricing.xlsx", "sheet": "Services"}
+  }
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "chunk_id": "ck_001",
+    "doc_id": "doc_security_overview",
+    "title": "Security Overview",
+    "content": "All customer data is encrypted in transit using TLS 1.2+ and at rest using AES-256. Keys are managed via a dedicated KMS with quarterly rotation.",
+    "metadata": {"source": "security_overview.pdf", "page": 3}
+  },
+  {
+    "chunk_id": "ck_002",
+    "doc_id": "doc_security_overview",
+    "title": "Security Overview",
+    "content": "Access to production systems requires multi-factor authentication, is logged centrally, and is restricted by least-privilege roles.",
+    "metadata": {"source": "security_overview.pdf", "page": 5}
+  },
+  {
+    "chunk_id": "ck_003",
+    "doc_id": "doc_compliance",
+    "title": "Compliance and Audits",
+    "content": "The platform maintains SOC 2 Type II and ISO 27001 certifications with annual third-party audits.",
+    "metadata": {"source": "compliance.docx", "page": 2}
+  },
+  {
+    "chunk_id": "ck_004",
+    "doc_id": "doc_sla",
+    "title": "Service Level Agreement",
+    "content": "The standard SLA provides 99.9% monthly uptime with service credits issued for breaches based on monthly spend.",
+    "metadata": {"source": "sla.pdf", "page": 1}
+  },
+  {
+    "chunk_id": "ck_005",
+    "doc_id": "doc_pricing",
+    "title": "Pricing Sheet",
+    "content": "Enterprise plan starts at $6,000 per month for up to 50 users. Additional users are billed at $85 per user per month.",
+    "metadata": {"source": "pricing.xlsx", "sheet": "Plans"}
+  },
+  {
+    "chunk_id": "ck_006",
+    "doc_id": "doc_pricing",
+    "title": "Pricing Sheet",
+    "content": "Professional services: onboarding is a one-time fee of $12,000 and includes system configuration, SSO setup, and training.",
+    "metadata": {"source": "pricing.xlsx", "sheet": "Services"}
+  },
+  {
+    "chunk_id": "ck_007",
+    "doc_id": "doc_implementation",
+    "title": "Implementation Plan",
+    "content": "Typical implementation takes 4 to 6 weeks, including discovery, data ingestion, validation, and user acceptance testing.",
+    "metadata": {"source": "implementation.pptx", "slide": 7}
+  },
+  {
+    "chunk_id": "ck_008",
+    "doc_id": "doc_support",
+    "title": "Support Policy",
+    "content": "Support hours are 24x5 with a 1 business hour response time for P1 incidents. P2 incidents have a 4 hour response time.",
+    "metadata": {"source": "support_policy.docx", "page": 1}
+  }
+]

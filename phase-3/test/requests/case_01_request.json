@@ -1,0 +1,8 @@
+{
+  "question": "Describe how data is encrypted in transit and at rest.",
+  "messages": [],
+  "top_k": 3,
+  "stream": false,
+  "max_tokens": 4096,
+  "quote": true
+}

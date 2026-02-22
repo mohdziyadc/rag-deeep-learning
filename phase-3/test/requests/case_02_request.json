@@ -1,0 +1,10 @@
+{
+  "question": "What is the Enterprise plan price and onboarding fee?",
+  "messages": [
+    {"role": "user", "content": "We need pricing for budgeting."}
+  ],
+  "top_k": 4,
+  "stream": false,
+  "max_tokens": 4096,
+  "quote": true
+}

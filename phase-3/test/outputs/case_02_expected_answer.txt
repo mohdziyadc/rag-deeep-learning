@@ -1,0 +1,1 @@
+The Enterprise plan starts at $6,000 per month for up to 50 users, with additional users at $85 per user per month [ID:0]. The one-time onboarding fee is $12,000 and includes configuration, SSO setup, and training [ID:1].

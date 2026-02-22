@@ -1,0 +1,31 @@
+[
+  {
+    "case": "case_01",
+    "request": "requests/case_01_request.json",
+    "retrieved_chunks": "retrieval/case_01_retrieved_chunks.json",
+    "expected_prompt": "prompts/case_01_system_prompt.txt",
+    "expected_answer": "outputs/case_01_expected_answer.txt"
+  },
+  {
+    "case": "case_02",
+    "request": "requests/case_02_request.json",
+    "retrieved_chunks": "retrieval/case_02_retrieved_chunks.json",
+    "expected_prompt": "prompts/case_02_system_prompt.txt",
+    "expected_answer": "outputs/case_02_expected_answer.txt"
+  },
+  {
+    "case": "case_03",
+    "request": "requests/case_03_request.json",
+    "retrieved_chunks": "retrieval/case_03_retrieved_chunks.json",
+    "expected_prompt": "prompts/case_03_system_prompt.txt",
+    "expected_answer": "outputs/case_03_expected_answer.txt",
+    "stream_events": "outputs/case_03_stream_events.jsonl"
+  },
+  {
+    "case": "case_04",
+    "request": "requests/case_04_request.json",
+    "retrieved_chunks": "retrieval/case_04_retrieved_chunks.json",
+    "expected_prompt": "prompts/case_04_system_prompt.txt",
+    "expected_answer": "outputs/case_04_expected_answer.txt"
+  }
+]

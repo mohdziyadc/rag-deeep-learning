@@ -1,0 +1,16 @@
+[
+  {
+    "chunk_id": "ck_001",
+    "doc_id": "doc_security_overview",
+    "title": "Security Overview",
+    "content": "All customer data is encrypted in transit using TLS 1.2+ and at rest using AES-256. Keys are managed via a dedicated KMS with quarterly rotation.",
+    "metadata": {"source": "security_overview.pdf", "page": 3}
+  },
+  {
+    "chunk_id": "ck_002",
+    "doc_id": "doc_security_overview",
+    "title": "Security Overview",
+    "content": "Access to production systems requires multi-factor authentication, is logged centrally, and is restricted by least-privilege roles.",
+    "metadata": {"source": "security_overview.pdf", "page": 5}
+  }
+]

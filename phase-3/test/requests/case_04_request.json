@@ -1,0 +1,10 @@
+{
+  "question": "Do you support HIPAA certification?",
+  "messages": [
+    {"role": "user", "content": "If the answer is unknown, say so clearly."}
+  ],
+  "top_k": 2,
+  "stream": false,
+  "max_tokens": 4096,
+  "quote": true
+}

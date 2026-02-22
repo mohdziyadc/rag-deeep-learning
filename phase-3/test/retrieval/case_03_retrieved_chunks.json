@@ -1,0 +1,16 @@
+[
+  {
+    "chunk_id": "ck_004",
+    "doc_id": "doc_sla",
+    "title": "Service Level Agreement",
+    "content": "The standard SLA provides 99.9% monthly uptime with service credits issued for breaches based on monthly spend.",
+    "metadata": {"source": "sla.pdf", "page": 1}
+  },
+  {
+    "chunk_id": "ck_008",
+    "doc_id": "doc_support",
+    "title": "Support Policy",
+    "content": "Support hours are 24x5 with a 1 business hour response time for P1 incidents. P2 incidents have a 4 hour response time.",
+    "metadata": {"source": "support_policy.docx", "page": 1}
+  }
+]

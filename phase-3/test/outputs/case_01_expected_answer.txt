@@ -1,0 +1,1 @@
+Data is encrypted in transit using TLS 1.2+ and at rest using AES-256, with keys managed in a dedicated KMS and rotated quarterly [ID:0]

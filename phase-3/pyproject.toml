@@ -1,0 +1,17 @@
+[project]
+name = "phase-3"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.129.2",
+    "jinja2>=3.1.6",
+    "numpy>=2.4.2",
+    "openai>=2.21.0",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.1",
+    "sentence-transformers>=5.2.3",
+    "tiktoken>=0.12.0",
+    "uvicorn>=0.41.0",
+]

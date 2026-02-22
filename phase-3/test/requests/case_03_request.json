@@ -1,0 +1,10 @@
+{
+  "question": "Summarize the SLA uptime and incident response times.",
+  "messages": [
+    {"role": "user", "content": "Provide a concise operational summary."}
+  ],
+  "top_k": 4,
+  "stream": true,
+  "max_tokens": 4096,
+  "quote": true
+}
