@@ -28,7 +28,7 @@ class Embedder:
 
         token_count = sum(len(t.split()) for t in tokens)
         
-        return np.ndarray(embeddings), token_count
+        return np.array(embeddings), token_count
 
     
 embedder = Embedder(model_name="sentence-transformers/all-MiniLM-L6-v2")

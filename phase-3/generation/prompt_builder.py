@@ -76,7 +76,7 @@ class PromptBuilder:
 
         if qoute and chunks:
             return base + "\n\n" + self.citation_prompt
-        return 
+        return base
         
 
 """

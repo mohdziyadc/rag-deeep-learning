@@ -4,7 +4,7 @@ from generation.citation_inserter import CitationInserter
 from generation.context_packer import ContextPacker
 from generation.llm_client import LLMClient
 from generation.prompt_builder import PromptBuilder
-from models.dtos import ChatMessage, ChatResponse, ReferenceBundle, ReferenceChunk, RetrievedChunk, ChatRes
+from models.dtos import ChatMessage, ChatResponse, ReferenceBundle, ReferenceChunk, RetrievedChunk
 
 
 class Generator:
@@ -27,6 +27,7 @@ class Generator:
                 ReferenceChunk(
                     chunk_id=chunk.chunk_id,
                     doc_id=chunk.doc_id,
+                    title=chunk.title,
                     content=chunk.content,
                     metadata=chunk.metadata
                 )
@@ -58,6 +59,7 @@ class Generator:
 
     def stream(
         self,
+        question: str, 
         messages: list[ChatMessage],
         chunks: list[RetrievedChunk],
         quote: bool
@@ -66,11 +68,11 @@ class Generator:
         Stream generation while preserving the same prompt and
         citation logic as non-streaming responses.
         """
-        system_prompt = self.prompts.build_system_prompt(chunks=chunks, qoute=qoute)
+        system_prompt = self.prompts.build_system_prompt(chunks=chunks, qoute=quote)
         packed = self.packer.fit_messages(system_prompt, messages + [ChatMessage(role="user", content=question)])
 
         full_answer = ""
-        for delta in self.llm.stream_chat(messages):
+        for delta in self.llm.stream_chat(packed):
             full_answer += delta
             yield {"type": "delta", "data": delta}
         

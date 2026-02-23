@@ -25,7 +25,7 @@ class CitationInserter:
         for i in range(0, len(parts) - 1, 2):
             merged.append(parts[i] + parts[i+1])
 
-        if len(merged) % 2 != 0:
+        if len(parts) % 2 != 0:
             merged.append(parts[-1])
         return [sentence for sentence in merged if sentence.strip()]
     
@@ -64,7 +64,7 @@ class CitationInserter:
             out.append(sentence)
             if i in citations and citations[i]:
                 for idx in citations[i]:
-                    out.append(f"[ID: {idx}]")
+                    out.append(f"[ID:{idx}]")
                     used.add(idx)
 
         """
