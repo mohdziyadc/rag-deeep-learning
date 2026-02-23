@@ -40,12 +40,12 @@ class CitationInserter:
 
         sentences = self._split_sentences(answer)
         embedder.load()
-        sent_vecs, _ = embedder.encode(sentences)
+        sentence_vecs, _ = embedder.encode(sentences)
         chunk_vecs, _ = embedder.encode(chunk_content)
 
         citations = {}
 
-        for i, svec in enumerate(sent_vecs):
+        for i, svec in enumerate(sentence_vecs):
             # cosine similarity
             # a small constant 1e-8 is added to the denominator
             # to prevent divided by 0 errors

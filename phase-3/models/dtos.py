@@ -33,6 +33,11 @@ class ReferenceBundle(BaseModel):
     chunks: list[ReferenceChunk]
     doc_aggs: list[dict] = Field(default_factory=list)
 
+class ChatResponse(BaseModel):
+    answer: str
+    reference: ReferenceBundle | None = None
+    prompt: str | None = None
+
 
 
 # ReferenceChunk / ReferenceBundle note
