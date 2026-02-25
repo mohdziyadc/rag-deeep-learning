@@ -1,0 +1,50 @@
+[
+  {
+    "doc_id": "doc_security_overview",
+    "title": "Security Overview",
+    "content": "Acme RAG platform encrypts data in transit using TLS 1.2+ and at rest using AES-256. Keys are managed by Acme KMS with quarterly rotation. Access to production requires MFA and is limited by least-privilege roles.",
+    "metadata": {"source": "security_overview.pdf", "page": 3}
+  },
+  {
+    "doc_id": "doc_compliance",
+    "title": "Compliance and Audits",
+    "content": "Acme maintains SOC 2 Type II and ISO 27001 certifications and completes annual third-party audits. Compliance reports are available upon request under NDA.",
+    "metadata": {"source": "compliance.docx", "page": 2}
+  },
+  {
+    "doc_id": "doc_sla",
+    "title": "Service Level Agreement",
+    "content": "The standard SLA provides 99.9% monthly uptime with service credits for breaches based on monthly spend. Critical incidents must be acknowledged within 1 business hour.",
+    "metadata": {"source": "sla.pdf", "page": 1}
+  },
+  {
+    "doc_id": "doc_implementation",
+    "title": "Implementation Plan",
+    "content": "Typical implementation takes 4 to 6 weeks and includes discovery, data ingestion, validation, and user acceptance testing. Acme assigns a delivery manager and solutions engineer.",
+    "metadata": {"source": "implementation.pptx", "slide": 7}
+  },
+  {
+    "doc_id": "doc_pricing",
+    "title": "Pricing Sheet",
+    "content": "Enterprise plan starts at $6,000 per month for up to 50 users. Additional users are billed at $85 per user per month. Professional services onboarding is a one-time fee of $12,000.",
+    "metadata": {"source": "pricing.xlsx", "sheet": "Plans"}
+  },
+  {
+    "doc_id": "doc_policy",
+    "title": "Data Retention Policy",
+    "content": "Customer data is retained for 30 days after contract termination unless the customer requests earlier deletion. Backups are encrypted and retained for 35 days.",
+    "metadata": {"source": "policy.pdf", "page": 4}
+  },
+  {
+    "doc_id": "doc_integrations",
+    "title": "Integrations",
+    "content": "Acme integrates with Slack, Google Drive, and Microsoft 365. Slack messages are ingested via OAuth and stored with channel metadata.",
+    "metadata": {"source": "integrations.docx", "page": 5}
+  },
+  {
+    "doc_id": "doc_architecture",
+    "title": "Deployment Architecture",
+    "content": "The platform can be deployed in a customer-managed VPC or in Acme-hosted cloud. For customer-managed deployments, Acme provides Terraform modules and reference architectures.",
+    "metadata": {"source": "architecture.pdf", "page": 8}
+  }
+]

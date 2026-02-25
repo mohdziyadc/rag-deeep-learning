@@ -1,0 +1,7 @@
+{
+  "question": "Summarize Acme's security posture, compliance, and uptime commitments.",
+  "kb_id": "kb_demo",
+  "top_entities": 6,
+  "top_relations": 6,
+  "top_communities": 1
+}
