@@ -436,21 +436,23 @@ class LLMClient:
 
 ### Step 3.1: Embedding Client (Entity/Relation Vectors)
 
-Create `core/graph/embeddings.py`:
+Create `core/graph/embeddings.py` (open-source embeddings):
 
 ```python
-from openai import OpenAI
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingClient:
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.model = model
+    def __init__(self, model: str) -> None:
+        self.model = SentenceTransformer(model)
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = self.client.embeddings.create(model=self.model, input=texts)
-        return [item.embedding for item in resp.data]
+    def embed(self, texts: list[str]) -> np.ndarray:
+        return self.model.encode(texts, normalize_embeddings=True)
 ```
+
+Note: add `sentence-transformers` to `pyproject.toml` and set `embedding_model`
+to something like `sentence-transformers/all-MiniLM-L6-v2` (384 dims).
 
 ---
 
