@@ -34,6 +34,7 @@ class GraphExtractor:
         relations: list[GraphRelation] = []
 
         for record in records:
+            # everything inside ()
             match = re.match(r"\((.*)\)", record)
 
             if not match:

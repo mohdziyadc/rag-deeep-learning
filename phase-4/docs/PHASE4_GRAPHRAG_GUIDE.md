@@ -527,20 +527,24 @@ Create `core/graph/store.py`:
 
 ```python
 import json
-from elasticsearch import Elasticsearch
+from elasticsearch import AsyncElasticsearch
 import networkx as nx
 
 
 class GraphDocStore:
     def __init__(self, url: str, index_name: str, embedding_dims: int) -> None:
-        self.client = Elasticsearch(url)
+        self.client = AsyncElasticsearch(url)
         self.index_name = index_name
         self.embedding_dims = embedding_dims
 
-    def ensure_index(self) -> None:
-        if self.client.indices.exists(index=self.index_name):
+    async def close(self) -> None:
+        await self.client.close()
+
+    async def ensure_index(self) -> None:
+        exists = await self.client.indices.exists(index=self.index_name)
+        if exists:
             return
-        self.client.indices.create(
+        await self.client.indices.create(
             index=self.index_name,
             mappings={
                 "properties": {
@@ -563,8 +567,8 @@ class GraphDocStore:
             },
         )
 
-    def delete_kb_docs(self, kb_id: str) -> None:
-        self.client.delete_by_query(
+    async def delete_kb_docs(self, kb_id: str) -> None:
+        await self.client.delete_by_query(
             index=self.index_name,
             query={"bool": {"filter": [
                 {"term": {"kb_id": kb_id}},
@@ -572,8 +576,8 @@ class GraphDocStore:
             ]}},
         )
 
-    def delete_graph_docs(self, kb_id: str) -> None:
-        self.client.delete_by_query(
+    async def delete_graph_docs(self, kb_id: str) -> None:
+        await self.client.delete_by_query(
             index=self.index_name,
             query={"bool": {"filter": [
                 {"term": {"kb_id": kb_id}},
@@ -581,16 +585,16 @@ class GraphDocStore:
             ]}},
         )
 
-    def upsert_graph(self, kb_id: str, graph: nx.Graph) -> None:
+    async def upsert_graph(self, kb_id: str, graph: nx.Graph) -> None:
         doc = {
             "knowledge_graph_kwd": "graph",
             "kb_id": kb_id,
             "source_id": graph.graph.get("source_id", []),
             "content_with_weight": json.dumps(nx.node_link_data(graph, edges="edges"), ensure_ascii=False),
         }
-        self.client.index(index=self.index_name, document=doc)
+        await self.client.index(index=self.index_name, document=doc)
 
-    def upsert_subgraph(self, kb_id: str, doc_id: str, subgraph: nx.Graph) -> None:
+    async def upsert_subgraph(self, kb_id: str, doc_id: str, subgraph: nx.Graph) -> None:
         doc = {
             "knowledge_graph_kwd": "subgraph",
             "kb_id": kb_id,
@@ -598,10 +602,10 @@ class GraphDocStore:
             "doc_id": doc_id,
             "content_with_weight": json.dumps(nx.node_link_data(subgraph, edges="edges"), ensure_ascii=False),
         }
-        self.client.index(index=self.index_name, document=doc)
+        await self.client.index(index=self.index_name, document=doc)
 
-    def load_graph(self, kb_id: str) -> nx.Graph:
-        res = self.client.search(
+    async def load_graph(self, kb_id: str) -> nx.Graph:
+        res = await self.client.search(
             index=self.index_name,
             size=1,
             query={"bool": {"filter": [
@@ -615,7 +619,7 @@ class GraphDocStore:
         raw = hits[0]["_source"]["content_with_weight"]
         return nx.node_link_graph(json.loads(raw), edges="edges")
 
-    def index_entity(self, kb_id: str, entity: dict, vec: list[float]) -> None:
+    async def index_entity(self, kb_id: str, entity: dict, vec: list[float]) -> None:
         doc = {
             "knowledge_graph_kwd": "entity",
             "kb_id": kb_id,
@@ -625,9 +629,9 @@ class GraphDocStore:
             "rank_flt": entity.get("pagerank", 0),
             "entity_vec": vec,
         }
-        self.client.index(index=self.index_name, document=doc)
+        await self.client.index(index=self.index_name, document=doc)
 
-    def index_relation(self, kb_id: str, relation: dict, vec: list[float]) -> None:
+    async def index_relation(self, kb_id: str, relation: dict, vec: list[float]) -> None:
         doc = {
             "knowledge_graph_kwd": "relation",
             "kb_id": kb_id,
@@ -637,9 +641,9 @@ class GraphDocStore:
             "weight_int": relation.get("strength", 0),
             "relation_vec": vec,
         }
-        self.client.index(index=self.index_name, document=doc)
+        await self.client.index(index=self.index_name, document=doc)
 
-    def index_community_report(self, kb_id: str, report: dict) -> None:
+    async def index_community_report(self, kb_id: str, report: dict) -> None:
         doc = {
             "knowledge_graph_kwd": "community_report",
             "kb_id": kb_id,
@@ -650,10 +654,10 @@ class GraphDocStore:
                 "evidences": "\n".join([f.get("explanation", "") for f in report.get("findings", [])]),
             }),
         }
-        self.client.index(index=self.index_name, document=doc)
+        await self.client.index(index=self.index_name, document=doc)
 
-    def search_entities(self, kb_id: str, vec: list[float], top_k: int) -> list[dict]:
-        res = self.client.search(
+    async def search_entities(self, kb_id: str, vec: list[float], top_k: int) -> list[dict]:
+        res = await self.client.search(
             index=self.index_name,
             size=top_k,
             query={"bool": {"filter": [
@@ -664,8 +668,8 @@ class GraphDocStore:
         )
         return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
 
-    def search_relations(self, kb_id: str, vec: list[float], top_k: int) -> list[dict]:
-        res = self.client.search(
+    async def search_relations(self, kb_id: str, vec: list[float], top_k: int) -> list[dict]:
+        res = await self.client.search(
             index=self.index_name,
             size=top_k,
             query={"bool": {"filter": [
@@ -676,8 +680,8 @@ class GraphDocStore:
         )
         return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
 
-    def search_community_reports(self, kb_id: str, entities: list[str], top_k: int) -> list[dict]:
-        res = self.client.search(
+    async def search_community_reports(self, kb_id: str, entities: list[str], top_k: int) -> list[dict]:
+        res = await self.client.search(
             index=self.index_name,
             size=top_k,
             query={"bool": {"filter": [
@@ -790,8 +794,23 @@ Tradeoff note:
 Create `core/graph/community.py`:
 
 ```python
+import json
 import networkx as nx
 import community as community_louvain
+from core.llm.client import LLMClient
+
+
+COMMUNITY_REPORT_PROMPT = """
+You are generating a community report for a knowledge graph cluster.
+Return JSON ONLY with keys: title, summary, findings.
+findings must be a list of objects with keys: summary, explanation.
+
+Entities:
+{entities}
+
+Relations:
+{relations}
+""".strip()
 
 
 def build_communities(graph: nx.Graph) -> dict[int, list[str]]:
@@ -805,10 +824,46 @@ def build_communities(graph: nx.Graph) -> dict[int, list[str]]:
     for node, cid in partition.items():
         communities.setdefault(cid, []).append(node)
     return communities
+
+
+def format_entities(graph: nx.Graph, nodes: list[str]) -> str:
+    lines = []
+    for name in nodes:
+        desc = graph.nodes[name].get("description", "")
+        lines.append(f"- {name}: {desc}")
+    return "\n".join(lines)
+
+
+def format_relations(graph: nx.Graph, nodes: list[str]) -> str:
+    node_set = set(nodes)
+    lines = []
+    for src, tgt, data in graph.edges(data=True):
+        if src in node_set and tgt in node_set:
+            desc = data.get("description", "")
+            lines.append(f"- {src} -> {tgt}: {desc}")
+    return "\n".join(lines)
+
+
+def build_community_report(llm: LLMClient, graph: nx.Graph, nodes: list[str], weight: float) -> dict:
+    entities = format_entities(graph, nodes)
+    relations = format_relations(graph, nodes)
+    user = COMMUNITY_REPORT_PROMPT.format(entities=entities, relations=relations)
+    raw = llm.chat("You output only valid JSON.", user)
+    try:
+        report = json.loads(raw)
+    except json.JSONDecodeError:
+        report = {
+            "title": "Community Report",
+            "summary": "Summary unavailable due to parse error.",
+            "findings": [],
+        }
+    report["weight"] = weight
+    report["entities"] = nodes
+    return report
 ```
 
-To mirror RAGFlow, convert each community into a report (LLM summary + findings)
-and store it in ES using `GraphDocStore.index_community_report(...)`.
+To mirror RAGFlow, we turn each community into a report and index it using
+`await GraphDocStore.index_community_report(...)`.
 
 ---
 
@@ -819,6 +874,7 @@ Create `core/graph/search.py`:
 ```python
 import json
 from core.graph.store import GraphDocStore
+from core.graph.community import build_communities, build_community_report
 from core.graph.embeddings import EmbeddingClient
 from models.schemas import GraphQuery
 
@@ -852,16 +908,16 @@ class GraphSearcher:
         self.store = store
         self.embedder = embedder
 
-    def query(self, kb_id: str, q: GraphQuery) -> str:
+    async def query(self, kb_id: str, q: GraphQuery) -> str:
         """
         Retrieve graph context from ES using vector search over
         entity/relation embeddings, mirroring graphrag/search.py.
         """
-        vec = self.embedder.embed([q.question])[0]
-        entities = self.store.search_entities(kb_id, vec, q.top_entities)
-        relations = self.store.search_relations(kb_id, vec, q.top_relations)
+        vec = self.embedder.embed([q.question])[0].tolist()
+        entities = await self.store.search_entities(kb_id, vec, q.top_entities)
+        relations = await self.store.search_relations(kb_id, vec, q.top_relations)
         entity_names = [e.get("entity_kwd", "") for e in entities if e.get("entity_kwd")]
-        communities = self.store.search_community_reports(kb_id, entity_names, q.top_communities)
+        communities = await self.store.search_community_reports(kb_id, entity_names, q.top_communities)
         return format_graph_context(entities, relations, communities)
 ```
 
@@ -886,9 +942,13 @@ from core.graph.store import GraphDocStore
 router = APIRouter()
 settings = get_settings()
 llm = LLMClient(settings.llm_api_key, settings.llm_base_url, settings.llm_model)
-embedder = EmbeddingClient(settings.llm_api_key, settings.llm_base_url, settings.embedding_model)
+embedder = EmbeddingClient(settings.embedding_model)
 store = GraphDocStore(settings.es_url, settings.es_index, settings.embedding_dims)
-store.ensure_index()
+
+
+@router.on_event("startup")
+async def ensure_index() -> None:
+    await store.ensure_index()
 
 
 @router.post("/graphrag/build")
@@ -899,9 +959,9 @@ async def build_graph(payload: dict):
     reset = payload.get("reset", False)
 
     extractor = GraphExtractor(llm, entity_types)
-    base = nx.Graph() if reset else store.load_graph(kb_id)
+    base = nx.Graph() if reset else await store.load_graph(kb_id)
     if reset:
-        store.delete_kb_docs(kb_id)
+        await store.delete_kb_docs(kb_id)
 
     for chunk in chunks:
         doc_id = chunk.get("doc_id", "doc_unknown")
@@ -920,7 +980,7 @@ async def build_graph(payload: dict):
             if subgraph.has_node(rel.src_id) and subgraph.has_node(rel.tgt_id):
                 subgraph.add_edge(rel.src_id, rel.tgt_id, **data)
 
-        store.upsert_subgraph(kb_id, doc_id, subgraph)
+        await store.upsert_subgraph(kb_id, doc_id, subgraph)
         base = graph_merge(base, subgraph)
 
     base = resolve_entities(base)
@@ -928,31 +988,37 @@ async def build_graph(payload: dict):
     for node, score in pr.items():
         base.nodes[node]["pagerank"] = score
 
-    store.delete_graph_docs(kb_id)
-    store.upsert_graph(kb_id, base)
+    await store.delete_graph_docs(kb_id)
+    await store.upsert_graph(kb_id, base)
 
     entity_names = list(base.nodes())
     entity_texts = [base.nodes[n].get("description", "") for n in entity_names]
     entity_vecs = embedder.embed(entity_texts) if entity_texts else []
     for name, vec in zip(entity_names, entity_vecs):
         ent = base.nodes[name]
-        store.index_entity(kb_id, {
+        await store.index_entity(kb_id, {
             "entity_name": name,
             "entity_type": ent.get("entity_type", "-"),
             "description": ent.get("description", ""),
             "pagerank": ent.get("pagerank", 0),
-        }, vec)
+        }, vec.tolist())
 
     relations = list(base.edges(data=True))
     rel_texts = [r[2].get("description", "") for r in relations]
     rel_vecs = embedder.embed(rel_texts) if rel_texts else []
     for (src, tgt, data), vec in zip(relations, rel_vecs):
-        store.index_relation(kb_id, {
+        await store.index_relation(kb_id, {
             "src_id": src,
             "tgt_id": tgt,
             "description": data.get("description", ""),
             "strength": data.get("weight", 0),
-        }, vec)
+        }, vec.tolist())
+
+    communities = build_communities(base)
+    for cid, nodes in communities.items():
+        weight = len(nodes) / max(1, base.number_of_nodes())
+        report = build_community_report(llm, base, nodes, weight)
+        await store.index_community_report(kb_id, report)
 
     return {"nodes": base.number_of_nodes(), "edges": base.number_of_edges(), "kb_id": kb_id}
 ```
@@ -971,13 +1037,13 @@ from app.config import get_settings
 router = APIRouter()
 settings = get_settings()
 store = GraphDocStore(settings.es_url, settings.es_index, settings.embedding_dims)
-searcher = GraphSearcher(store, EmbeddingClient(settings.llm_api_key, settings.llm_base_url, settings.embedding_model))
+searcher = GraphSearcher(store, EmbeddingClient(settings.embedding_model))
 
 
 @router.post("/graphrag/query")
 async def graphrag_query(q: GraphQuery):
     kb_id = q.kb_id or settings.default_kb_id
-    return {"graph_context": searcher.query(kb_id, q)}
+    return {"graph_context": await searcher.query(kb_id, q)}
 ```
 
 Create `app/config.py`:
@@ -990,8 +1056,8 @@ class Settings(BaseSettings):
     llm_api_key: str
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dims: int = 1536
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dims: int = 384
     es_url: str = "http://localhost:9200"
     es_index: str = "graphrag_demo"
     default_kb_id: str = "kb_demo"
