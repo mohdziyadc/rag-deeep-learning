@@ -759,6 +759,10 @@ def should_merge(a: str, b: str) -> bool:
     """
     a_norm = re.sub(r"\W+", "", a.lower())
     b_norm = re.sub(r"\W+", "", b.lower())
+    # re.sub(r"\W+", "", text) removes all non‑word characters.
+    # Examples:
+    # "Acme Corp, Inc." -> "acmecorpinc"
+    # "ACME-CORP"       -> "acmecorp"
     if a_norm == b_norm:
         return True
     if a_norm in b_norm or b_norm in a_norm:
@@ -770,6 +774,10 @@ def resolve_entities(graph: nx.Graph) -> nx.Graph:
     """
     Merge nodes that represent the same entity.
     Mirrors graphrag/entity_resolution.py in simplified form.
+
+    Example (conceptual):
+      Before: A -- B -- C
+      After merge(B -> A): A -- C  (B is removed, its edges move to A)
     """
     nodes = list(graph.nodes())
     merged = graph.copy()
@@ -778,7 +786,7 @@ def resolve_entities(graph: nx.Graph) -> nx.Graph:
             if nodes[i] not in merged or nodes[j] not in merged:
                 continue
             if should_merge(nodes[i], nodes[j]):
-                nx.contracted_nodes(merged, nodes[i], nodes[j], self_loops=False, copy=False)
+                nx.contracted_nodes(merged, nodes[i], nodes[j], self_loops=False, copy=False)  # merge node j into i (rewire edges, drop j)
     return merged
 ```
 
