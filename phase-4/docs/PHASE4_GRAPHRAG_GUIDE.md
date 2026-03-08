@@ -666,7 +666,8 @@ class GraphDocStore:
             ]}},
             knn={"field": "entity_vec", "query_vector": vec, "k": top_k, "num_candidates": max(50, top_k * 5)},
         )
-        return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
+        hits = res.get("hits", {}).get("hits", [])
+        return [{**h.get("_source", {}), "_score": h.get("_score", 0.0)} for h in hits]
 
     async def search_relations(self, kb_id: str, vec: list[float], top_k: int) -> list[dict]:
         res = await self.client.search(
@@ -678,7 +679,8 @@ class GraphDocStore:
             ]}},
             knn={"field": "relation_vec", "query_vector": vec, "k": top_k, "num_candidates": max(50, top_k * 5)},
         )
-        return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
+        hits = res.get("hits", {}).get("hits", [])
+        return [{**h.get("_source", {}), "_score": h.get("_score", 0.0)} for h in hits]
 
     async def search_community_reports(self, kb_id: str, entities: list[str], top_k: int) -> list[dict]:
         res = await self.client.search(
@@ -927,10 +929,27 @@ class GraphSearcher:
         """
         Retrieve graph context from ES using vector search over
         entity/relation embeddings, mirroring graphrag/search.py.
+
+        Example:
+          embed([q.question]) -> [[0.12, -0.03, ...]]
+          [0] selects the only embedding for this single input.
         """
         vec = self.embedder.embed([q.question])[0].tolist()
-        entities = await self.store.search_entities(kb_id, vec, q.top_entities)
-        relations = await self.store.search_relations(kb_id, vec, q.top_relations)
+        entity_candidates = await self.store.search_entities(kb_id, vec, max(50, q.top_entities * 5))
+        relation_candidates = await self.store.search_relations(kb_id, vec, max(50, q.top_relations * 5))
+
+        def ent_score(e: dict) -> float:
+            sim = float(e.get("_score", 0.0))
+            pr = float(e.get("rank_flt", 0.0))
+            return sim * pr
+
+        def rel_score(r: dict) -> float:
+            sim = float(r.get("_score", 0.0))
+            weight = float(r.get("weight_int", 0.0))
+            return sim * weight
+
+        entities = sorted(entity_candidates, key=ent_score, reverse=True)[: q.top_entities]
+        relations = sorted(relation_candidates, key=rel_score, reverse=True)[: q.top_relations]
         entity_names = [e.get("entity_kwd", "") for e in entities if e.get("entity_kwd")]
         communities = await self.store.search_community_reports(kb_id, entity_names, q.top_communities)
         return format_graph_context(entities, relations, communities)

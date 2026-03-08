@@ -5,6 +5,9 @@ from pathlib import Path
 class Settings(BaseSettings):
     es_host: str
     es_index: str
+    llm_api_key: str
+    llm_model: str
+    embedding_dims: int = 384
 
     class Config:
         env_file = Path(__file__).resolve().parents[1] / ".env"
