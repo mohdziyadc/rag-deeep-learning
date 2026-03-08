@@ -808,66 +808,74 @@ import community as community_louvain
 from core.llm.client import LLMClient
 
 
-COMMUNITY_REPORT_PROMPT = """
-You are generating a community report for a knowledge graph cluster.
-Return JSON ONLY with keys: title, summary, findings.
-findings must be a list of objects with keys: summary, explanation.
-
-Entities:
-{entities}
-
-Relations:
-{relations}
-""".strip()
-
-
-def build_communities(graph: nx.Graph) -> dict[int, list[str]]:
+class CommunityReportBuilder:
     """
-    Detect communities (clusters). RAGFlow uses Leiden; Louvain is a close proxy.
+    Build community clusters and generate LLM reports for each community.
     """
-    if len(graph) == 0:
-        return {}
-    partition = community_louvain.best_partition(graph)
-    communities: dict[int, list[str]] = {}
-    for node, cid in partition.items():
-        communities.setdefault(cid, []).append(node)
-    return communities
 
+    _prompt = """
+    You are generating a community report for a knowledge graph cluster.
+    Return JSON ONLY with keys: title, summary, findings.
+    findings must be a list of objects with keys: summary, explanation.
 
-def format_entities(graph: nx.Graph, nodes: list[str]) -> str:
-    lines = []
-    for name in nodes:
-        desc = graph.nodes[name].get("description", "")
-        lines.append(f"- {name}: {desc}")
-    return "\n".join(lines)
+    Entities:
+    {entities}
 
+    Relations:
+    {relations}
+    """.strip()
 
-def format_relations(graph: nx.Graph, nodes: list[str]) -> str:
-    node_set = set(nodes)
-    lines = []
-    for src, tgt, data in graph.edges(data=True):
-        if src in node_set and tgt in node_set:
-            desc = data.get("description", "")
-            lines.append(f"- {src} -> {tgt}: {desc}")
-    return "\n".join(lines)
+    def __init__(self, llm: LLMClient) -> None:
+        self.llm = llm
 
+    def build_communities(self, graph: nx.Graph) -> dict[int, list[str]]:
+        """
+        Detect communities (clusters). RAGFlow uses Leiden; Louvain is a close proxy.
+        """
+        if len(graph) == 0:
+            return {}
+        partition = community_louvain.best_partition(graph)
+        # Example output (node -> community id):
+        # {"Acme Corp": 0, "SOC 2": 0, "Audit": 1, "Policy A": 1}
+        communities: dict[int, list[str]] = {}
+        for node, cid in partition.items():
+            communities.setdefault(cid, []).append(node)
+        return communities
 
-def build_community_report(llm: LLMClient, graph: nx.Graph, nodes: list[str], weight: float) -> dict:
-    entities = format_entities(graph, nodes)
-    relations = format_relations(graph, nodes)
-    user = COMMUNITY_REPORT_PROMPT.format(entities=entities, relations=relations)
-    raw = llm.chat("You output only valid JSON.", user)
-    try:
-        report = json.loads(raw)
-    except json.JSONDecodeError:
-        report = {
-            "title": "Community Report",
-            "summary": "Summary unavailable due to parse error.",
-            "findings": [],
-        }
-    report["weight"] = weight
-    report["entities"] = nodes
-    return report
+    def build_report(self, graph: nx.Graph, nodes: list[str], weight: float) -> dict:
+        entities = self._format_entities(graph, nodes)
+        relations = self._format_relations(graph, nodes)
+        user = self._prompt.format(entities=entities, relations=relations)
+        raw = self.llm.chat("You output only valid JSON.", user)
+        try:
+            report = json.loads(raw)
+        except json.JSONDecodeError:
+            report = {
+                "title": "Community Report",
+                "summary": "Summary unavailable due to parse error.",
+                "findings": [],
+            }
+        report["weight"] = weight
+        report["entities"] = nodes
+        return report
+
+    @staticmethod
+    def _format_entities(graph: nx.Graph, nodes: list[str]) -> str:
+        lines = []
+        for name in nodes:
+            desc = graph.nodes[name].get("description", "")
+            lines.append(f"- {name}: {desc}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_relations(graph: nx.Graph, nodes: list[str]) -> str:
+        node_set = set(nodes)
+        lines = []
+        for src, tgt, data in graph.edges(data=True):
+            if src in node_set and tgt in node_set:
+                desc = data.get("description", "")
+                lines.append(f"- {src} -> {tgt}: {desc}")
+        return "\n".join(lines)
 ```
 
 To mirror RAGFlow, we turn each community into a report and index it using
@@ -882,7 +890,6 @@ Create `core/graph/search.py`:
 ```python
 import json
 from core.graph.store import GraphDocStore
-from core.graph.community import build_communities, build_community_report
 from core.graph.embeddings import EmbeddingClient
 from models.schemas import GraphQuery
 
@@ -942,6 +949,7 @@ from app.config import get_settings
 from core.llm.client import LLMClient
 from core.graph.embeddings import EmbeddingClient
 from core.graph.extractor import GraphExtractor
+from core.graph.community import CommunityReportBuilder
 from core.graph.merge import graph_merge
 from core.graph.resolve import resolve_entities
 from core.graph.store import GraphDocStore
@@ -952,11 +960,84 @@ settings = get_settings()
 llm = LLMClient(settings.llm_api_key, settings.llm_base_url, settings.llm_model)
 embedder = EmbeddingClient(settings.embedding_model)
 store = GraphDocStore(settings.es_url, settings.es_index, settings.embedding_dims)
+community_builder = CommunityReportBuilder(llm)
 
 
 @router.on_event("startup")
 async def ensure_index() -> None:
     await store.ensure_index()
+
+
+def build_subgraph(doc_id: str, result) -> nx.Graph:
+    subgraph = nx.Graph()
+    subgraph.graph["source_id"] = [doc_id]
+    for ent in result.entities:
+        data = ent.model_dump()
+        data["source_id"] = [doc_id]
+        subgraph.add_node(ent.entity_name, **data)
+    for rel in result.relations:
+        data = rel.model_dump()
+        data["source_id"] = [doc_id]
+        data["weight"] = data.pop("strength", 0)
+        if subgraph.has_node(rel.src_id) and subgraph.has_node(rel.tgt_id):
+            subgraph.add_edge(rel.src_id, rel.tgt_id, **data)
+    return subgraph
+
+
+async def merge_chunks(kb_id: str, chunks: list[dict], extractor: GraphExtractor, base: nx.Graph) -> nx.Graph:
+    for chunk in chunks:
+        doc_id = chunk.get("doc_id", "doc_unknown")
+        result = extractor.extract(chunk["content"])
+        subgraph = build_subgraph(doc_id, result)
+        await store.upsert_subgraph(kb_id, doc_id, subgraph)
+        base = graph_merge(base, subgraph)
+    return base
+
+
+def apply_pagerank(graph: nx.Graph) -> None:
+    pr = nx.pagerank(graph) if len(graph) else {}
+    for node, score in pr.items():
+        graph.nodes[node]["pagerank"] = score
+
+
+async def index_graph_snapshot(kb_id: str, graph: nx.Graph) -> None:
+    await store.delete_graph_docs(kb_id)
+    await store.upsert_graph(kb_id, graph)
+
+
+async def index_entities(kb_id: str, graph: nx.Graph) -> None:
+    entity_names = list(graph.nodes())
+    entity_texts = [graph.nodes[n].get("description", "") for n in entity_names]
+    entity_vecs = embedder.embed(entity_texts) if entity_texts else []
+    for name, vec in zip(entity_names, entity_vecs):
+        ent = graph.nodes[name]
+        await store.index_entity(kb_id, {
+            "entity_name": name,
+            "entity_type": ent.get("entity_type", "-"),
+            "description": ent.get("description", ""),
+            "pagerank": ent.get("pagerank", 0),
+        }, vec.tolist())
+
+
+async def index_relations(kb_id: str, graph: nx.Graph) -> None:
+    relations = list(graph.edges(data=True))
+    rel_texts = [r[2].get("description", "") for r in relations]
+    rel_vecs = embedder.embed(rel_texts) if rel_texts else []
+    for (src, tgt, data), vec in zip(relations, rel_vecs):
+        await store.index_relation(kb_id, {
+            "src_id": src,
+            "tgt_id": tgt,
+            "description": data.get("description", ""),
+            "strength": data.get("weight", 0),
+        }, vec.tolist())
+
+
+async def index_community_reports(kb_id: str, graph: nx.Graph) -> None:
+    communities = community_builder.build_communities(graph)
+    for _, nodes in communities.items():
+        weight = len(nodes) / max(1, graph.number_of_nodes())
+        report = community_builder.build_report(graph, nodes, weight)
+        await store.index_community_report(kb_id, report)
 
 
 @router.post("/graphrag/build")
@@ -971,62 +1052,14 @@ async def build_graph(payload: dict):
     if reset:
         await store.delete_kb_docs(kb_id)
 
-    for chunk in chunks:
-        doc_id = chunk.get("doc_id", "doc_unknown")
-        result = extractor.extract(chunk["content"])
-
-        subgraph = nx.Graph()
-        subgraph.graph["source_id"] = [doc_id]
-        for ent in result.entities:
-            data = ent.model_dump()
-            data["source_id"] = [doc_id]
-            subgraph.add_node(ent.entity_name, **data)
-        for rel in result.relations:
-            data = rel.model_dump()
-            data["source_id"] = [doc_id]
-            data["weight"] = data.pop("strength", 0)
-            if subgraph.has_node(rel.src_id) and subgraph.has_node(rel.tgt_id):
-                subgraph.add_edge(rel.src_id, rel.tgt_id, **data)
-
-        await store.upsert_subgraph(kb_id, doc_id, subgraph)
-        base = graph_merge(base, subgraph)
-
+    base = await merge_chunks(kb_id, chunks, extractor, base)
     base = resolve_entities(base)
-    pr = nx.pagerank(base) if len(base) else {}
-    for node, score in pr.items():
-        base.nodes[node]["pagerank"] = score
+    apply_pagerank(base)
 
-    await store.delete_graph_docs(kb_id)
-    await store.upsert_graph(kb_id, base)
-
-    entity_names = list(base.nodes())
-    entity_texts = [base.nodes[n].get("description", "") for n in entity_names]
-    entity_vecs = embedder.embed(entity_texts) if entity_texts else []
-    for name, vec in zip(entity_names, entity_vecs):
-        ent = base.nodes[name]
-        await store.index_entity(kb_id, {
-            "entity_name": name,
-            "entity_type": ent.get("entity_type", "-"),
-            "description": ent.get("description", ""),
-            "pagerank": ent.get("pagerank", 0),
-        }, vec.tolist())
-
-    relations = list(base.edges(data=True))
-    rel_texts = [r[2].get("description", "") for r in relations]
-    rel_vecs = embedder.embed(rel_texts) if rel_texts else []
-    for (src, tgt, data), vec in zip(relations, rel_vecs):
-        await store.index_relation(kb_id, {
-            "src_id": src,
-            "tgt_id": tgt,
-            "description": data.get("description", ""),
-            "strength": data.get("weight", 0),
-        }, vec.tolist())
-
-    communities = build_communities(base)
-    for cid, nodes in communities.items():
-        weight = len(nodes) / max(1, base.number_of_nodes())
-        report = build_community_report(llm, base, nodes, weight)
-        await store.index_community_report(kb_id, report)
+    await index_graph_snapshot(kb_id, base)
+    await index_entities(kb_id, base)
+    await index_relations(kb_id, base)
+    await index_community_reports(kb_id, base)
 
     return {"nodes": base.number_of_nodes(), "edges": base.number_of_edges(), "kb_id": kb_id}
 ```
