@@ -109,10 +109,30 @@ async def index_entities(kb_id: str, graph: nx.Graph) -> None:
         }, vec.tolist())
 
 async def index_relations(kb_id: str, graph: nx.Graph) -> None:
-    return "TODO"
+    relations = list(graph.edges(data=True))
+    rel_texts = [r[2].get("description", "") for r in relations]
+    rel_vecs = embedder.embed(rel_texts) if rel_texts else []
+
+    for (src, tgt, data), vec in zip(relations, rel_vecs):
+        await vector_store.index_relation(
+            kb_id, 
+            {
+                "src_id": src,
+                "tgt_id": tgt,
+                "description": data.get("description", ""),
+                "strength": data.get("weight", 0)
+            },
+            vec.tolist()
+        )
 
 async def index_community_reports(kb_id: str, graph: nx.Graph) -> None:
-    return "TODO"
+    
+    communities = community_builder.build_communities(graph)
+    for _, nodes in communities.items():
+        weight = len(nodes) / max(1, graph.number_of_nodes())
+        report = community_builder.build_report(graph, nodes, weight)
+
+        await vector_store.index_community_report(kb_id, report)
 
 
 
