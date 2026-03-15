@@ -1,0 +1,33 @@
+2026-03-16 02:22:34,382 | INFO | uvicorn.error | Started server process [64868]
+2026-03-16 02:22:34,383 | INFO | uvicorn.error | Waiting for application startup.
+2026-03-16 02:22:34,581 | DEBUG | openai._base_client | Request options: {'method': 'get', 'url': '/models/gpt-5.1'}
+2026-03-16 02:22:34,582 | DEBUG | openai._base_client | Sending HTTP Request: GET https://api.openai.com/v1/models/gpt-5.1
+2026-03-16 02:22:34,586 | DEBUG | httpcore.connection | connect_tcp.started host='api.openai.com' port=443 local_address=None timeout=5.0 socket_options=None
+2026-03-16 02:22:34,692 | DEBUG | httpcore.connection | connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x15fa629f0>
+2026-03-16 02:22:34,692 | DEBUG | httpcore.connection | start_tls.started ssl_context=<ssl.SSLContext object at 0x1136a7550> server_hostname='api.openai.com' timeout=5.0
+2026-03-16 02:22:35,085 | DEBUG | httpcore.connection | start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x122b5ef60>
+2026-03-16 02:22:35,086 | DEBUG | httpcore.http11 | send_request_headers.started request=<Request [b'GET']>
+2026-03-16 02:22:35,087 | DEBUG | httpcore.http11 | send_request_headers.complete
+2026-03-16 02:22:35,088 | DEBUG | httpcore.http11 | send_request_body.started request=<Request [b'GET']>
+2026-03-16 02:22:35,088 | DEBUG | httpcore.http11 | send_request_body.complete
+2026-03-16 02:22:35,088 | DEBUG | httpcore.http11 | receive_response_headers.started request=<Request [b'GET']>
+2026-03-16 02:22:35,536 | DEBUG | httpcore.http11 | receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Sun, 15 Mar 2026 20:52:35 GMT'), (b'Content-Type', b'application/json'), (b'Transfer-Encoding', b'chunked'), (b'Connection', b'keep-alive'), (b'Server', b'cloudflare'), (b'openai-version', b'2020-10-01'), (b'x-request-id', b'fa8082a8-6e72-4130-8d44-d3538b99f647'), (b'openai-processing-ms', b'136'), (b'x-openai-proxy-wasm', b'v0.1'), (b'cf-cache-status', b'DYNAMIC'), (b'set-cookie', b'__cf_bm=8x.epTMxYDZfuKnhKT9ZHy0uivx.UHby58vS7ZcRRfA-1773607955.1450326-1.0.1.1-9pd7Uou6XTeKIQh6w4rE3k.pIVdYvm8_duoP409zpuG33uja7S6RW.iLSOxT.eTEMPy.Y75FryJBiHscMHWVwaBoasbQBBmzAjal8EeJtsGE_jnkqmN4z2mC.vmCFw8j; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Sun, 15 Mar 2026 21:22:35 GMT'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'X-Content-Type-Options', b'nosniff'), (b'Content-Encoding', b'gzip'), (b'CF-RAY', b'9dce6717af94937d-MAA'), (b'alt-svc', b'h3=":443"; ma=86400')])
+2026-03-16 02:22:35,538 | INFO | httpx | HTTP Request: GET https://api.openai.com/v1/models/gpt-5.1 "HTTP/1.1 200 OK"
+2026-03-16 02:22:35,539 | DEBUG | httpcore.http11 | receive_response_body.started request=<Request [b'GET']>
+2026-03-16 02:22:35,540 | DEBUG | httpcore.http11 | receive_response_body.complete
+2026-03-16 02:22:35,540 | DEBUG | httpcore.http11 | response_closed.started
+2026-03-16 02:22:35,540 | DEBUG | httpcore.http11 | response_closed.complete
+2026-03-16 02:22:35,541 | DEBUG | openai._base_client | HTTP Response: GET https://api.openai.com/v1/models/gpt-5.1 "200 OK" Headers({'date': 'Sun, 15 Mar 2026 20:52:35 GMT', 'content-type': 'application/json', 'transfer-encoding': 'chunked', 'connection': 'keep-alive', 'server': 'cloudflare', 'openai-version': '2020-10-01', 'x-request-id': 'fa8082a8-6e72-4130-8d44-d3538b99f647', 'openai-processing-ms': '136', 'x-openai-proxy-wasm': 'v0.1', 'cf-cache-status': 'DYNAMIC', 'set-cookie': '__cf_bm=8x.epTMxYDZfuKnhKT9ZHy0uivx.UHby58vS7ZcRRfA-1773607955.1450326-1.0.1.1-9pd7Uou6XTeKIQh6w4rE3k.pIVdYvm8_duoP409zpuG33uja7S6RW.iLSOxT.eTEMPy.Y75FryJBiHscMHWVwaBoasbQBBmzAjal8EeJtsGE_jnkqmN4z2mC.vmCFw8j; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Sun, 15 Mar 2026 21:22:35 GMT', 'strict-transport-security': 'max-age=31536000; includeSubDomains; preload', 'x-content-type-options': 'nosniff', 'content-encoding': 'gzip', 'cf-ray': '9dce6717af94937d-MAA', 'alt-svc': 'h3=":443"; ma=86400'})
+2026-03-16 02:22:35,541 | DEBUG | openai._base_client | request_id: fa8082a8-6e72-4130-8d44-d3538b99f647
+2026-03-16 02:22:35,543 | INFO | main | LLM connected, less go! 🚀
+2026-03-16 02:22:35,546 | INFO | graph.store | Connected to ES at http://localhost:9200
+2026-03-16 02:22:35,560 | INFO | elastic_transport.transport | HEAD http://localhost:9200/graphrag [status:200 duration:0.014s]
+2026-03-16 02:22:35,561 | INFO | graph.store | Index already exists: graphrag
+2026-03-16 02:22:35,561 | INFO | uvicorn.error | Application startup complete.
+2026-03-16 02:25:03,120 | INFO | graph.store | Connected to ES at http://localhost:9200
+2026-03-16 02:25:06,426 | INFO | elastic_transport.transport | POST http://localhost:9200/graphrag/_search [status:200 duration:0.171s]
+2026-03-16 02:25:06,438 | INFO | elastic_transport.transport | POST http://localhost:9200/graphrag/_search [status:200 duration:0.010s]
+2026-03-16 02:25:06,465 | INFO | elastic_transport.transport | POST http://localhost:9200/graphrag/_search [status:200 duration:0.026s]
+2026-03-16 02:25:06,468 | INFO | uvicorn.access | 127.0.0.1:54135 - "POST /api/graphrag/query HTTP/1.1" 200
+2026-03-16 02:45:24,019 | INFO | uvicorn.error | Shutting down
+2026-03-16 02:45:24,123 | INFO | uvicorn.error | Finished server process [64868]

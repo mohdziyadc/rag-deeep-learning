@@ -1,9 +1,8 @@
 import logging
-from elasticsearch import AsyncElasticsearch
-from numpy import indices
-from config.config import settings
-import networkx as nx
 import json
+import networkx as nx
+from elasticsearch import AsyncElasticsearch
+from config.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +42,15 @@ Global Graph (merge of subgraphs)
 
 
 class GraphDocStore:
-
     def __init__(self, index_name: str, embedding_dims: int) -> None:
         self.client: AsyncElasticsearch | None = None
         self.index_name = index_name
         self.embedding_dims = embedding_dims
-    
 
     async def connect(self) -> None:
         if self.client is None:
             self.client = AsyncElasticsearch(
-                hosts=[settings.es_host],
-                request_timeout=30
+                hosts=[settings.es_host], request_timeout=30
             )
             logger.info(f"Connected to ES at {settings.es_host}")
 
@@ -62,9 +58,13 @@ class GraphDocStore:
         if self.client:
             await self.client.close()
             self.client = None
-    
+
     async def create_index(self) -> None:
-        if self.client.indices.exists(index=self.index_name):
+        if self.client is None:
+            await self.connect()
+        idx_present = await self.client.indices.exists(index=self.index_name)
+        if idx_present:
+            logger.info("Index already exists: %s", self.index_name)
             return
 
         await self.client.indices.create(
@@ -84,14 +84,20 @@ class GraphDocStore:
                     "rank_flt": {"type": "float"},
                     "weight_int": {"type": "integer"},
                     "weight_flt": {"type": "float"},
-                    "entity_vec": {"type": "dense_vector", "dims": self.embedding_dims,
-                    "index": True, "similarity": "cosine"
+                    "entity_vec": {
+                        "type": "dense_vector",
+                        "dims": self.embedding_dims,
+                        "index": True,
+                        "similarity": "cosine",
                     },
-                    "relation_vec": {"type": "dense_vector", "dims": self.embedding_dims,
-                    "index": True, "similarity": "cosine"
+                    "relation_vec": {
+                        "type": "dense_vector",
+                        "dims": self.embedding_dims,
+                        "index": True,
+                        "similarity": "cosine",
                     },
                 }
-            }
+            },
         )
 
     async def delete_kb_docs(self, kb_id: str) -> None:
@@ -103,14 +109,21 @@ class GraphDocStore:
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
-                        {"terms": {
-                            "knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation", "community_report"]
-                        }}
+                        {
+                            "terms": {
+                                "knowledge_graph_kwd": [
+                                    "graph",
+                                    "subgraph",
+                                    "entity",
+                                    "relation",
+                                    "community_report",
+                                ]
+                            }
+                        },
                     ]
                 }
-            }
+            },
         )
-    
 
     async def delete_graph_docs(self, kb_id: str) -> None:
         await self.client.delete_by_query(
@@ -119,56 +132,61 @@ class GraphDocStore:
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
-                        {"terms": {"knowledge_graph_kwd": ["graph", "subgraph"]}}
+                        {"terms": {"knowledge_graph_kwd": ["graph", "subgraph"]}},
                     ]
                 }
-            }
+            },
         )
-    
 
     async def upsert_graph(self, kb_id: str, graph: nx.Graph) -> None:
         doc = {
             "knowledge_graph_kwd": "graph",
             "kb_id": kb_id,
             "source_id": graph.graph.get("source_id", []),
-            "content_with_weight": json.dumps(nx.node_link_data(graph, edges="edges"), ensure_ascii=False) 
+            "content_with_weight": json.dumps(
+                nx.node_link_data(graph, edges="edges"), ensure_ascii=False
+            ),
         }
         # graph.graph.source_id = is the provenance list for the graph: the set of document IDs
         # whose chunks contributed nodes/edges to this graph.
         await self.client.index(index=self.index_name, document=doc)
 
-    async def upsert_subgraph(self, kb_id: str, doc_id: str, subgraph: nx.Graph) -> None:
+    async def upsert_subgraph(
+        self, kb_id: str, doc_id: str, subgraph: nx.Graph
+    ) -> None:
         doc = {
             "knowledge_graph_kwd": "subgraph",
             "kb_id": kb_id,
             "source_id": [doc_id],
             "doc_id": doc_id,
-            "content_with_weight": json.dumps(nx.node_link_data(subgraph, edges="edges"), ensure_ascii=False)
+            "content_with_weight": json.dumps(
+                nx.node_link_data(subgraph, edges="edges"), ensure_ascii=False
+            ),
         }
 
         await self.client.index(index=self.index_name, document=doc)
-    
+
     async def load_graph(self, kb_id: str) -> nx.Graph:
         res = await self.client.search(
             index=self.index_name,
-            size = 1,
+            size=1,
             query={
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
-                        {"term": {"knowledge_graph_kwd": "graph"}}
+                        {"term": {"knowledge_graph_kwd": "graph"}},
                     ]
                 }
-            }
+            },
         )
 
         hits = res.get("hits", {}).get("hits", [])
         if not hits:
             return nx.Graph()
-        
+
         raw = hits[0]["_source"]["content_with_weight"]
         return nx.node_link_graph(json.loads(raw), edges="edges")
-    
+
     async def index_entity(self, kb_id: str, entity: dict, vec: list[float]) -> None:
         doc = {
             "knowledge_graph_kwd": "entity",
@@ -177,12 +195,14 @@ class GraphDocStore:
             "entity_type_kwd": entity["entity_type"],
             "content_with_weight": json.dumps({"description": entity["description"]}),
             "rank_flt": entity.get("pagerank", 0),
-            "entity_vec": vec
+            "entity_vec": vec,
         }
 
         await self.client.index(index=self.index_name, document=doc)
-    
-    async def index_relation(self, kb_id: str, relation: dict, vec: list[float]) -> None:
+
+    async def index_relation(
+        self, kb_id: str, relation: dict, vec: list[float]
+    ) -> None:
         doc = {
             "knowledge_graph_kwd": "relation",
             "kb_id": kb_id,
@@ -194,67 +214,84 @@ class GraphDocStore:
         }
         await self.client.index(index=self.index_name, document=doc)
 
-    
-    async def index_community_report(self, kb_id:str, report: dict) -> None:
+    async def index_community_report(self, kb_id: str, report: dict) -> None:
         doc = {
             "knowledge_graph_kwd": "community_report",
             "kb_id": kb_id,
             "entities_kwd": report.get("entities", []),
             "weight_flt": report.get("weight", 0),
-            "content_with_weight": json.dumps({
-                "report": report.get("summary", ""),
-                "evidences": "\n".join([f.get("explanation", "") for f in report.get("findings", [])]),
-            }),
-            
+            "content_with_weight": json.dumps(
+                {
+                    "report": report.get("summary", ""),
+                    "evidences": "\n".join(
+                        [f.get("explanation", "") for f in report.get("findings", [])]
+                    ),
+                }
+            ),
         }
         await self.client.index(index=self.index_name, document=doc)
 
-
-    async def search_entities(self, kb_id:str, vec:list[float], top_k:int) -> list[dict]:
+    async def search_entities(
+        self, kb_id: str, vec: list[float], top_k: int
+    ) -> list[dict]:
         res = await self.client.search(
-            index= self.index_name,
+            index=self.index_name,
             size=top_k,
             query={
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
-                        {"term": {"knowledge_graph_kwd": "entity"}}
+                        {"term": {"knowledge_graph_kwd": "entity"}},
                     ]
                 }
             },
-            knn={"field": "entity_vec", "query_vector": vec, "k": top_k, "num_candidates": max(50, top_k*5)}
+            knn={
+                "field": "entity_vec",
+                "query_vector": vec,
+                "k": top_k,
+                "num_candidates": max(50, top_k * 5),
+            },
         )
         return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
 
-    async def search_relations(self, kb_id:str, vec:list[float], top_k:int) -> list[dict]:
+    async def search_relations(
+        self, kb_id: str, vec: list[float], top_k: int
+    ) -> list[dict]:
         res = await self.client.search(
-            index= self.index_name,
+            index=self.index_name,
             size=top_k,
             query={
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
-                        {"term": {"knowledge_graph_kwd": "relation"}}
+                        {"term": {"knowledge_graph_kwd": "relation"}},
                     ]
                 }
             },
-            knn={"field": "relation_vec", "query_vector": vec, "k": top_k, "num_candidates": max(50, top_k*5)}
+            knn={
+                "field": "relation_vec",
+                "query_vector": vec,
+                "k": top_k,
+                "num_candidates": max(50, top_k * 5),
+            },
         )
         return [h["_source"] for h in res.get("hits", {}).get("hits", [])]
 
-    async def search_community_reports(self, kb_id:str, entities:list[str], top_k:int) -> list[dict]:
+    async def search_community_reports(
+        self, kb_id: str, entities: list[str], top_k: int
+    ) -> list[dict]:
         res = await self.client.search(
-            index= self.index_name,
+            index=self.index_name,
             size=top_k,
             query={
                 "bool": {
                     "filter": [
                         {"term": {"kb_id": kb_id}},
                         {"term": {"knowledge_graph_kwd": "community_report"}},
-                        {"terms": {"entities_kwd": entities}}
+                        {"terms": {"entities_kwd": entities}},
                     ]
                 }
             },
-           sort=[{"weight_flt": "desc"}]
+            sort=[{"weight_flt": "desc"}],
         )
         return [h["_source"] for h in res.get("hits", {}).get("hits", [])]

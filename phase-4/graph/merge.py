@@ -38,13 +38,12 @@ Visual sketch:
 
 
 def graph_merge(base: nx.Graph, subgraph: nx.Graph) -> nx.Graph:
-
     for node_name, attr in subgraph.nodes(data=True):
         if not base.has_node(node_name):
             base.add_node(node_name, **attr)
             continue
-        
-        node = base.nodes(node_name)
+
+        node = base.nodes[node_name]
         node["description"] += GRAPH_FIELD_SEP + attr["description"]
         node["source_id"] += attr["source_id"]
 
@@ -59,7 +58,7 @@ def graph_merge(base: nx.Graph, subgraph: nx.Graph) -> nx.Graph:
 
     for node_degree in base.degree:
         base.nodes[str(node_degree[0])]["rank"] = int(node_degree[1])
-    
+
     base.graph.setdefault("source_id", [])
     """
     Example:
@@ -69,5 +68,3 @@ def graph_merge(base: nx.Graph, subgraph: nx.Graph) -> nx.Graph:
     """
     base.graph["source_id"] += subgraph.graph.get("source_id", [])
     return base
-
-

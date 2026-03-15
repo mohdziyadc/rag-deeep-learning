@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     llm_api_key: str
     llm_model: str
     embedding_dims: int = 384
+    llm_base_url: str = "https://api.openai.com/v1"
 
     class Config:
         env_file = Path(__file__).resolve().parents[1] / ".env"

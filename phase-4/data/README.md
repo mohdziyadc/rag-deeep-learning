@@ -9,6 +9,11 @@ without depending on Phase 1 or Phase 2.
 - `entity_types.json`: Entity types used by the graph extractor.
 - `build_request.json`: Example payload for `/api/graphrag/build` (chunk objects).
 - `query_request.json`: Example payload for `/api/graphrag/query` (includes kb_id).
+- `query_request_security.json`: Security-focused query payload.
+- `query_request_compliance.json`: Compliance-focused query payload.
+- `query_request_sla.json`: SLA/uptime-focused query payload.
+- `query_request_pricing.json`: Pricing-focused query payload.
+- `query_request_architecture.json`: Architecture/deployment-focused query payload.
 
 ## How To Use
 
