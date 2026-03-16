@@ -1,0 +1,62 @@
+[
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "For the security questionnaire, what certifications do we hold and how often are we audited?",
+    "agent_response": "Acme maintains SOC 2 Type II and ISO 27001 certifications. Independent third-party audits are completed annually. Full audit reports are shared under NDA with qualified customers."
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "What uptime and incident response commitment should we put in the RFP answer?",
+    "agent_response": "The standard SLA provides 99.9% monthly uptime. If uptime falls below SLA thresholds, service credits are applied according to monthly spend. Critical incidents are acknowledged within 1 business hour."
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "What is our post-termination data retention and backup policy?",
+    "agent_response": "Customer data is retained for 30 days after contract termination unless earlier deletion is requested by the customer. Backups remain encrypted and are retained for 35 days."
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "Give me the implementation timeline and delivery team details for onboarding.",
+    "agent_response": "Typical implementation takes 4 to 6 weeks and runs through discovery, data ingestion, validation, and UAT. We assign a delivery manager and a solutions engineer to each enterprise deployment."
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "Summarize enterprise pricing and onboarding costs.",
+    "agent_response": "Enterprise plan pricing starts at 6000 USD per month for up to 50 users. Additional users are billed at 85 USD per user per month. Professional services onboarding is a one-time 12000 USD fee."
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_id": "tenant_acme_single_001",
+    "user_input": "Which integrations should we mention and how is Slack data ingested?",
+    "agent_response": "Acme integrates with Slack, Google Drive, and Microsoft 365. Slack ingestion uses OAuth authorization and stores messages with channel-level metadata for traceability."
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "What certifications and audit cadence should we mention?": {
+    "must_contain_any": [
+      "SOC 2 Type II",
+      "ISO 27001",
+      "annual"
+    ],
+    "preferred_message_types": [
+      "semantic",
+      "raw"
+    ]
+  },
+  "What are our SLA and incident response commitments?": {
+    "must_contain_any": [
+      "99.9",
+      "service credits",
+      "1 business hour"
+    ],
+    "preferred_message_types": [
+      "semantic",
+      "procedural",
+      "raw"
+    ]
+  },
+  "How long do we retain customer data and backups after termination?": {
+    "must_contain_any": [
+      "30 days",
+      "35 days",
+      "earlier deletion"
+    ],
+    "preferred_message_types": [
+      "semantic",
+      "raw"
+    ]
+  },
+  "Summarize enterprise pricing and onboarding fee.": {
+    "must_contain_any": [
+      "6000",
+      "85",
+      "12000"
+    ],
+    "preferred_message_types": [
+      "semantic",
+      "raw"
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "turn_id": "turn_001",
+    "phase3_answer_with_citations": "Acme maintains SOC 2 Type II and ISO 27001 certifications, with annual third-party audits and NDA-gated report sharing [ID:1].",
+    "phase4_graph_context": "Entity cluster: Acme -> Compliance Program -> SOC 2 Type II, ISO 27001, Annual Audit Cycle."
+  },
+  {
+    "turn_id": "turn_002",
+    "phase3_answer_with_citations": "The standard SLA is 99.9% monthly uptime, includes service credits on breach, and requires critical incident acknowledgment within 1 business hour [ID:2].",
+    "phase4_graph_context": "Relation chain: SLA -> Uptime Commitment -> Incident Response SLO -> Service Credit Policy."
+  },
+  {
+    "turn_id": "turn_003",
+    "phase3_answer_with_citations": "Customer data is retained for 30 days after termination unless earlier deletion is requested; encrypted backups are retained for 35 days [ID:5].",
+    "phase4_graph_context": "Policy subgraph: Data Retention Policy -> Deletion Window 30d -> Backup Retention 35d."
+  },
+  {
+    "turn_id": "turn_004",
+    "phase3_answer_with_citations": "Typical implementation takes 4-6 weeks and includes discovery, ingestion, validation, and UAT with a delivery manager and solutions engineer [ID:3].",
+    "phase4_graph_context": "Delivery graph: Implementation Plan -> Milestones -> Role Assignment."
+  },
+  {
+    "turn_id": "turn_005",
+    "phase3_answer_with_citations": "Enterprise pricing starts at $6,000/month for up to 50 users, with $85/user/month overage and a one-time $12,000 onboarding fee [ID:4].",
+    "phase4_graph_context": "Pricing graph: Plan Tier -> User Cap -> Overage Rate -> Onboarding Service Fee."
+  },
+  {
+    "turn_id": "turn_006",
+    "phase3_answer_with_citations": "Acme supports Slack, Google Drive, and Microsoft 365 integrations, with Slack ingestion via OAuth and channel-level metadata persistence [ID:6].",
+    "phase4_graph_context": "Integration graph: Connectors -> OAuth -> Metadata lineage by source channel."
+  }
+]

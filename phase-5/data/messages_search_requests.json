@@ -1,0 +1,46 @@
+[
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "query": "What certifications and audit cadence should we mention?",
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "similarity_threshold": 0.2,
+    "keywords_similarity_weight": 0.7,
+    "top_n": 8
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "query": "What are our SLA and incident response commitments?",
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "similarity_threshold": 0.2,
+    "keywords_similarity_weight": 0.7,
+    "top_n": 8
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "query": "How long do we retain customer data and backups after termination?",
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "similarity_threshold": 0.2,
+    "keywords_similarity_weight": 0.7,
+    "top_n": 8
+  },
+  {
+    "memory_id": [
+      "<REPLACE_WITH_MEMORY_ID>"
+    ],
+    "query": "Summarize enterprise pricing and onboarding fee.",
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "similarity_threshold": 0.2,
+    "keywords_similarity_weight": 0.7,
+    "top_n": 8
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "memory_id": "<REPLACE_WITH_MEMORY_ID>",
+  "message_id": "<REPLACE_WITH_MESSAGE_ID>",
+  "notes": "Use DELETE /api/v1/messages/{memory_id}:{message_id}"
+}

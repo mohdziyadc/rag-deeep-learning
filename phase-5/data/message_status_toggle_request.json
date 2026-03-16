@@ -1,0 +1,8 @@
+{
+  "memory_id": "<REPLACE_WITH_MEMORY_ID>",
+  "message_id": "<REPLACE_WITH_MESSAGE_ID>",
+  "body": {
+    "status": false
+  },
+  "notes": "Use PUT /api/v1/messages/{memory_id}:{message_id} with body.status=false"
+}

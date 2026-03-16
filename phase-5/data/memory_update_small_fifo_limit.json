@@ -1,0 +1,6 @@
+{
+  "memory_size": 18000,
+  "forgetting_policy": "FIFO",
+  "temperature": 0.2,
+  "description": "Small-capacity profile to test FIFO eviction behavior"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "task_memory_extract_001",
+  "task_id": "task_memory_extract_001",
+  "task_type": "memory",
+  "memory_id": "<REPLACE_WITH_MEMORY_ID>",
+  "source_id": 10001,
+  "message_dict": {
+    "user_id": "tenant_acme_single_001",
+    "agent_id": "agent_rfp_writer_001",
+    "session_id": "rfp_session_2026_q1",
+    "user_input": "For the security questionnaire, what certifications do we hold and how often are we audited?",
+    "agent_response": "Acme maintains SOC 2 Type II and ISO 27001 certifications. Independent third-party audits are completed annually."
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "turn_001": {
+    "semantic": [
+      {
+        "content": "Acme maintains SOC 2 Type II certification.",
+        "valid_at": "2026-03-16T09:00:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Acme maintains ISO 27001 certification.",
+        "valid_at": "2026-03-16T09:00:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Acme completes annual third-party compliance audits.",
+        "valid_at": "2026-03-16T09:00:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user requested certification and audit frequency details.",
+        "valid_at": "2026-03-16T09:01:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "When sharing compliance evidence, require NDA execution before releasing full audit reports.",
+        "valid_at": "2026-03-16T09:01:00Z",
+        "invalid_at": ""
+      }
+    ]
+  },
+  "turn_002": {
+    "semantic": [
+      {
+        "content": "Acme standard SLA target is 99.9 percent monthly uptime.",
+        "valid_at": "2026-03-16T09:03:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Critical incidents are acknowledged within 1 business hour.",
+        "valid_at": "2026-03-16T09:03:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user requested uptime and incident response commitments.",
+        "valid_at": "2026-03-16T09:04:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "When answering SLA questions, include uptime percentage, credit policy trigger, and incident acknowledgment timeline.",
+        "valid_at": "2026-03-16T09:04:00Z",
+        "invalid_at": ""
+      }
+    ]
+  },
+  "turn_003": {
+    "semantic": [
+      {
+        "content": "Customer data is retained for 30 days after termination unless earlier deletion is requested.",
+        "valid_at": "2026-03-16T09:06:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Encrypted backups are retained for 35 days.",
+        "valid_at": "2026-03-16T09:06:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user requested retention and deletion policy specifics.",
+        "valid_at": "2026-03-16T09:07:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "For data lifecycle responses, provide termination retention window and backup retention period explicitly.",
+        "valid_at": "2026-03-16T09:07:00Z",
+        "invalid_at": ""
+      }
+    ]
+  },
+  "turn_004": {
+    "semantic": [
+      {
+        "content": "Typical enterprise implementation duration is 4 to 6 weeks.",
+        "valid_at": "2026-03-16T09:09:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user asked for onboarding timeline and staffing details.",
+        "valid_at": "2026-03-16T09:10:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "Implementation narrative should follow discovery, ingestion, validation, and UAT milestones.",
+        "valid_at": "2026-03-16T09:10:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "State that delivery manager and solutions engineer are assigned for enterprise onboarding.",
+        "valid_at": "2026-03-16T09:10:00Z",
+        "invalid_at": ""
+      }
+    ]
+  },
+  "turn_005": {
+    "semantic": [
+      {
+        "content": "Enterprise pricing starts at 6000 USD per month for up to 50 users.",
+        "valid_at": "2026-03-16T09:12:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Additional users cost 85 USD per user per month.",
+        "valid_at": "2026-03-16T09:12:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Professional services onboarding is a one-time 12000 USD fee.",
+        "valid_at": "2026-03-16T09:12:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user requested pricing and onboarding fee details.",
+        "valid_at": "2026-03-16T09:13:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "For pricing responses, include base plan, overage unit price, and one-time onboarding fee.",
+        "valid_at": "2026-03-16T09:13:00Z",
+        "invalid_at": ""
+      }
+    ]
+  },
+  "turn_006": {
+    "semantic": [
+      {
+        "content": "Acme integrates with Slack, Google Drive, and Microsoft 365.",
+        "valid_at": "2026-03-16T09:15:00Z",
+        "invalid_at": ""
+      },
+      {
+        "content": "Slack ingestion uses OAuth and preserves channel metadata.",
+        "valid_at": "2026-03-16T09:15:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "episodic": [
+      {
+        "content": "In this RFP session, the user requested integration and Slack ingestion details.",
+        "valid_at": "2026-03-16T09:16:00Z",
+        "invalid_at": ""
+      }
+    ],
+    "procedural": [
+      {
+        "content": "When documenting integrations, list supported connectors and the authentication method per connector.",
+        "valid_at": "2026-03-16T09:16:00Z",
+        "invalid_at": ""
+      }
+    ]
+  }
+}

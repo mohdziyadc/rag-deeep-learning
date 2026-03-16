@@ -1,0 +1,9 @@
+{
+  "tenant_id": "tenant_acme_single_001",
+  "agent_id": "agent_rfp_writer_001",
+  "session_id": "rfp_session_2026_q1",
+  "memory_name": "acme_rfp_memory_phase5",
+  "embd_id": "BAAI/bge-small-en-v1.5@Builtin",
+  "llm_id": "glm-4-flash@ZHIPU-AI",
+  "notes": "Create memory first, then replace <REPLACE_WITH_MEMORY_ID> in other files."
+}
