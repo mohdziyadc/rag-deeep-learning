@@ -18,6 +18,8 @@ def get_memory_type_human(memory_type: int) -> list[str]:
     2 & 5 = false (2 = 0010)
     4 & 5 = true (4 = 0100)
     returns ["raw", "episodic"]
+
+    name and value are part of Enum type in python
     """
     return [m.name.lower() for m in MemoryType if memory_type & m.value]
 
