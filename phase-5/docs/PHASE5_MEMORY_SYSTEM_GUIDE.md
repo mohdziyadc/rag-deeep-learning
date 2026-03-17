@@ -94,6 +94,78 @@ flowchart TB
     MMS --> ES
 ```
 
+This diagram is easiest to understand if you split it into 2 client-facing flows.
+
+1. Config flow (Memories API) [ONE TIME ACT - Creating a bucket to store memories basically]
+
+- You (or your UI) call Memories API to create/update/list a memory.
+- MemoryService writes config to PostgreSQL memory table (tenant, model IDs, memory type, prompts, limits).
+- This is mostly synchronous and fast.
+- No queue/worker needed for this path.
+
+2. Ingestion + extraction flow (Messages API)
+
+- User talks to Agent -> Agent calls Messages API with user_input + agent_response. THis is the "raw" output. “raw” means the unstructured conversation turn as-is
+- Memory/MessageService does immediate work:
+  - gets new message ID from Redis id seq
+  - embeds and stores RAW turn in Message Store index (memory\_<tenant_id>)
+  - updates memory size cache in Redis
+  - creates task record in PostgreSQL task table
+  - pushes extraction job to Redis queue
+- API returns quickly to client (accepted/queued behavior).
+  After that, background work starts:
+- Task Executor Worker pulls from Redis queue.
+- Worker loads memory config from PostgreSQL.
+- Calls Chat LLM for extraction (semantic/episodic/procedural memory items).
+- Calls Embedding model on extracted items.
+- Stores extracted items in Message Store index.
+- Updates task status/progress in task table.
+
+---
+
+What is parallel vs sequential?
+Sequential (within one request/task)
+
+- For a single message task: extract -> embed -> store -> mark progress.
+- These happen in order.
+  Parallel (system-level)
+- Client response is returned before extraction finishes.
+- Worker processing runs in background while user can continue chatting/searching.
+- Multiple workers/tasks can run concurrently across sessions/memories.
+- You can ingest new messages while older extraction tasks are still running.
+
+---
+
+From client perspective: what you observe
+
+- Right after POST /messages: message is accepted quickly.
+- Immediate search may show mostly RAW memory.
+- A bit later, richer extracted memories appear (after worker finishes).
+- If something fails, task status shows failure even though initial API call succeeded.
+
+---
+
+## What Happens from a client perspective
+
+- First a memory bucket is created for that tenant along with other params (one time setup). This is the memory config.
+- Then when a user asks a question, the agent takes that question and along with the system prompt
+  generates a response. This can be streamed back to the client if needed.
+- Once this is done, this "raw" response of the agent is basically transformed to a task and enqueued, along with indexing this "raw" response
+- The client gets a response of saying like "this task has been scheduled"
+- The background worker picks this job up from redis, loads the memory config
+- Extracts the types of memories from this job via an LLM, embeds them, and indexes them in ES
+- Updates the job status
+- Now next time, when a client asks a question, orchestrator retrieves relevant memories from ES and adds them to generation context. This is driven by a config at an agent level in ragflow. If that config is true
+  then retrive memory otherwise not. (Their Canvas is used for agent builders).
+
+### The user facing agentic loop here
+
+1. User asks question
+2. Agent optionally/conditionally calls retrieval tool (memory ES, KB, or both)
+3. Agent builds prompt: system prompt + retrieved context + current question (+ short chat history)
+4. Agent generates response (can stream)
+5. After final response is complete, agent calls POST /messages to persist RAW turn (or batch later)
+
 ### Multi-tenant extension in real RAGFlow
 
 - Relational ownership is scoped by `memory.tenant_id` (MySQL in RAGFlow, PostgreSQL in this guide).
@@ -494,7 +566,7 @@ Why this exists:
 
 Create `core/prompt_assembler.py`:
 
-```python
+````python
 from typing import Optional
 from core.enums import MemoryType
 
@@ -571,7 +643,7 @@ You are an expert at analyzing conversations to extract structured memory.
             conversation_time=conversation_time or "Not specified",
             current_time=current_time or "Not specified",
         )
-```
+````
 
 Why this exists:
 
@@ -1480,7 +1552,7 @@ ES setup checklist:
 
 Create `core/memory_pipeline.py`:
 
-```python
+````python
 import json
 from datetime import datetime
 
@@ -1801,7 +1873,7 @@ class MemoryPipeline:
         if not memory:
             return None
         return await self.message_service.get_by_message_id(memory_id, message_id, memory.tenant_id)
-```
+````
 
 Why this file is the heart of Phase 5:
 
@@ -2254,36 +2326,36 @@ Why this exists:
 
 ## End-to-End Runbook (Use Generated Seed Files)
 
-0) Start API and worker
+0. Start API and worker
 
 - Required env vars before start: `DOC_ENGINE=elasticsearch`, `ES_HOSTS`, `ES_USERNAME`, `ES_PASSWORD`, `POSTGRES_DSN`, `REDIS_URL`, `OPENAI_API_KEY`.
 - API server: `uvicorn app.main:app --host 0.0.0.0 --port 9380 --reload`
 - Worker: `python -m core.worker_main`
 
-1) Create memory
+1. Create memory
 
 - Raw-only fast path: `opencode/data/phase-5/memory_create_raw_only.json`
 - Full extraction path: `opencode/data/phase-5/memory_create_multi_type.json`
 
-2) Add messages
+2. Add messages
 
 - Use `opencode/data/phase-5/messages_add_batch.json` (replace `<REPLACE_WITH_MEMORY_ID>`).
 
-3) Start worker
+3. Start worker
 
 - Run your phase worker (`core/worker.py`) so extraction tasks are consumed.
 
-4) Query memory
+4. Query memory
 
 - Use `opencode/data/phase-5/messages_search_requests.json`.
 
-5) Validate recent/status/forget
+5. Validate recent/status/forget
 
 - `messages_recent_request.json`
 - `message_status_toggle_request.json`
 - `forget_message_request.json`
 
-6) Compare behavior
+6. Compare behavior
 
 - Validate against `expected_search_results.json`.
 
@@ -2350,17 +2422,17 @@ The guide intentionally simplifies a few implementation details so you can learn
 - `medium`: core behavior is preserved, but important edge cases or guardrails are reduced.
 - `low`: production-significant behavior is simplified; harden this before enterprise rollout.
 
-| Parity Tag | Simplified Part | What It Does | How It Helps the System | How RAGFlow Does It | Why We Chose Simpler Path |
-|---|---|---|---|---|---|
-| medium | Lexical query builder (`MsgTextQuery`) | Builds BM25-friendly query text from user input | Improves recall for exact terms and phrases in memory search | Uses a richer pipeline in `memory/services/query.py`: term weighting, synonym expansion, Chinese fine-grained tokenization, phrase boosts | Easier to debug and reason about while learning hybrid retrieval flow |
-| medium | Match expression representation | Represents text/dense/fusion queries as plain dicts in the learning code | Keeps search orchestration readable and backend-agnostic | Uses typed classes (`MatchTextExpr`, `MatchDenseExpr`, `FusionExpr`) translated by ES/Infinity adapters | Avoids abstraction depth early; focus stays on retrieval logic |
-| medium | LLM extraction JSON parsing | Parses extraction output into typed memory records | Converts dialogue into semantic/episodic/procedural memory units | Uses prompt contracts + parsing utilities + task-progress integration (`memory_message_service.py`, `memory/utils/msg_util.py`) | Keeps extraction loop short for code-along implementation |
-| medium | Worker runtime | Consumes memory tasks from Redis stream and runs extraction asynchronously | Keeps write latency low by offloading expensive extraction | `rag/svr/task_executor.py` additionally handles lock cleanup, richer retry controls, and broker-level metrics | Learning worker covers group creation + pending/new consumption with simpler failure policy |
-| medium | Task lifecycle management | Tracks extraction task status and progress | Gives operational visibility and failure diagnostics | `TaskService` includes richer metadata and centralized update semantics used across task types | Learning repo keeps only fields needed for memory extraction while preserving progress semantics |
-| medium | Message-store adapter depth | Maps logical message fields to physical index/table schema | Allows hybrid retrieval against ES/Infinity with consistent API | Separate adapters (`memory/utils/es_conn.py`, `memory/utils/infinity_conn.py`) handle field mapping, query translation, and backend-specific behavior | Reduces cognitive load while preserving conceptual boundaries |
-| medium | Observability and usage accounting | Tracks model usage and traces extraction/retrieval operations | Supports cost control and production troubleshooting | `LLMBundle` updates tenant usage counters and can emit Langfuse traces | Non-essential for first end-to-end memory implementation |
-| low | Authorization and permission enforcement | Ensures only allowed users/tenants can mutate/query memory | Critical for secure multi-tenant operation | API layer uses `login_required`, tenant scoping, permission checks (`me`/`team`) in SDK endpoints and services | Single-tenant learning mode lets you focus on memory mechanics first |
-| medium | Memory update constraints | Prevents incompatible updates (e.g., embedding model/type changes on non-empty memory) | Protects vector consistency and retrieval quality | `api/apps/sdk/memories.py` blocks unsafe updates when memory already has content | Kept lighter so you can iterate quickly during learning |
+| Parity Tag | Simplified Part                          | What It Does                                                                           | How It Helps the System                                          | How RAGFlow Does It                                                                                                                                   | Why We Chose Simpler Path                                                                        |
+| ---------- | ---------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| medium     | Lexical query builder (`MsgTextQuery`)   | Builds BM25-friendly query text from user input                                        | Improves recall for exact terms and phrases in memory search     | Uses a richer pipeline in `memory/services/query.py`: term weighting, synonym expansion, Chinese fine-grained tokenization, phrase boosts             | Easier to debug and reason about while learning hybrid retrieval flow                            |
+| medium     | Match expression representation          | Represents text/dense/fusion queries as plain dicts in the learning code               | Keeps search orchestration readable and backend-agnostic         | Uses typed classes (`MatchTextExpr`, `MatchDenseExpr`, `FusionExpr`) translated by ES/Infinity adapters                                               | Avoids abstraction depth early; focus stays on retrieval logic                                   |
+| medium     | LLM extraction JSON parsing              | Parses extraction output into typed memory records                                     | Converts dialogue into semantic/episodic/procedural memory units | Uses prompt contracts + parsing utilities + task-progress integration (`memory_message_service.py`, `memory/utils/msg_util.py`)                       | Keeps extraction loop short for code-along implementation                                        |
+| medium     | Worker runtime                           | Consumes memory tasks from Redis stream and runs extraction asynchronously             | Keeps write latency low by offloading expensive extraction       | `rag/svr/task_executor.py` additionally handles lock cleanup, richer retry controls, and broker-level metrics                                         | Learning worker covers group creation + pending/new consumption with simpler failure policy      |
+| medium     | Task lifecycle management                | Tracks extraction task status and progress                                             | Gives operational visibility and failure diagnostics             | `TaskService` includes richer metadata and centralized update semantics used across task types                                                        | Learning repo keeps only fields needed for memory extraction while preserving progress semantics |
+| medium     | Message-store adapter depth              | Maps logical message fields to physical index/table schema                             | Allows hybrid retrieval against ES/Infinity with consistent API  | Separate adapters (`memory/utils/es_conn.py`, `memory/utils/infinity_conn.py`) handle field mapping, query translation, and backend-specific behavior | Reduces cognitive load while preserving conceptual boundaries                                    |
+| medium     | Observability and usage accounting       | Tracks model usage and traces extraction/retrieval operations                          | Supports cost control and production troubleshooting             | `LLMBundle` updates tenant usage counters and can emit Langfuse traces                                                                                | Non-essential for first end-to-end memory implementation                                         |
+| low        | Authorization and permission enforcement | Ensures only allowed users/tenants can mutate/query memory                             | Critical for secure multi-tenant operation                       | API layer uses `login_required`, tenant scoping, permission checks (`me`/`team`) in SDK endpoints and services                                        | Single-tenant learning mode lets you focus on memory mechanics first                             |
+| medium     | Memory update constraints                | Prevents incompatible updates (e.g., embedding model/type changes on non-empty memory) | Protects vector consistency and retrieval quality                | `api/apps/sdk/memories.py` blocks unsafe updates when memory already has content                                                                      | Kept lighter so you can iterate quickly during learning                                          |
 
 ### Suggested hardening order (after Phase 5 code-along)
 
